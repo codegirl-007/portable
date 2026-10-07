@@ -11,10 +11,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/codegirl-007/portable/internal/config"
 	"github.com/codegirl-007/portable/internal/detect"
 	"github.com/codegirl-007/portable/internal/mutagen"
-	"github.com/codegirl-007/portable/internal/opencode"
+	"github.com/codegirl-007/portable/internal/project"
 	"github.com/codegirl-007/portable/internal/provision"
+	"github.com/codegirl-007/portable/internal/setup"
 	"github.com/codegirl-007/portable/internal/sprites"
 	"github.com/codegirl-007/portable/internal/sshconfig"
 	"github.com/codegirl-007/portable/internal/state"
@@ -36,6 +38,9 @@ func init() {
 }
 
 func runUp(_ *cobra.Command, _ []string) error {
+	if !cfg.SetupDone() {
+		return fmt.Errorf("run `portable setup` first (writes %s)", config.GlobalPath())
+	}
 	if err := sprites.EnsureInstalled(); err != nil {
 		return err
 	}
@@ -72,25 +77,32 @@ func runUp(_ *cobra.Command, _ []string) error {
 	}
 	if !provisioned || upFlags.reprovision {
 		upStep("provisioning the workspace (one-time)")
-		goKey, keyErr := opencode.GoAPIKey()
-		if keyErr != nil {
-			ui.Warnf("%v; the remote opencode will have no credentials", keyErr)
+		var credFiles []provision.CredentialFile
+		if agent, ok := cfg.DefaultAgentConfig(); ok {
+			rel, content, warn := setup.ResolveCredentials(*agent)
+			if warn != "" {
+				ui.Warnf("%s", warn)
+			}
+			if rel != "" && content != "" {
+				credFiles = append(credFiles, provision.CredentialFile{RelPath: rel, Content: content})
+			}
 		}
-		script := provision.SetupScript(provision.SetupRequest{
-			PublicKey: publicKey(),
-			GoAPIKey:  goKey,
-			Model:     opencode.DefaultModel(),
-			RemoteDir: inst.RemoteDir,
-			Tools:     cfg.Tools,
+		setupReq := provision.NewSetupRequest(cfg, provision.SetupRequestFromConfig{
+			PublicKey:       publicKey(),
+			RemoteDir:       inst.RemoteDir,
+			CredentialFiles: credFiles,
 		})
+		script := provision.SetupScript(setupReq)
 		if err := remoteRun(client, inst.SpriteName, sprites.ExecOptions{Stdin: strings.NewReader(script)}, "bash", "-s"); err != nil {
 			return failSetup(inst, err)
 		}
 		pushDotfiles(client, inst.SpriteName)
-		upStep("bootstrapping nvim (plugins + treesitter parsers)")
-		if err := client.Exec(bg(), inst.SpriteName, sprites.ExecOptions{}, "sh", "-c",
-			`export PATH="$HOME/.local/bin:$PATH"; nvim --headless "+Lazy! sync" +qa >/dev/null 2>&1 || true`); err != nil {
-			ui.Warnf("nvim bootstrap: %v", err)
+		if setupReq.NvimBootstrapDot {
+			upStep("bootstrapping nvim (plugins + treesitter parsers)")
+			if err := client.Exec(bg(), inst.SpriteName, sprites.ExecOptions{}, "sh", "-c",
+				`export PATH="$HOME/.local/bin:$PATH"; nvim --headless "+Lazy! sync" +qa >/dev/null 2>&1 || true`); err != nil {
+				ui.Warnf("nvim bootstrap: %v", err)
+			}
 		}
 	}
 
@@ -120,26 +132,38 @@ func runUp(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	stack := detect.Detect(inst.LocalDir)
-	if flagVerbose {
-		if sum := stack.Summary(); sum != "" {
-			ui.Infof("detected: %s", sum)
-		}
+	proj, err := project.Load(projectDir)
+	if err != nil {
+		return err
 	}
-	ensure := stack.EnsureToolCommands()
-	install := stack.InstallCommands()
-	if cfg.PackageManager != "" {
-		stack.PackageManager = cfg.PackageManager
-		ensure = stack.EnsureToolCommands()
-		install = stack.InstallCommands()
+	depsPlan, err := project.DepsPlanFromConfig(proj, func() (ensure, install []string) {
+		stack := detect.Detect(inst.LocalDir)
+		if flagVerbose {
+			if sum := stack.Summary(); sum != "" {
+				ui.Infof("detected: %s", sum)
+			}
+		}
+		if cfg.PackageManager != "" {
+			stack.PackageManager = cfg.PackageManager
+		}
+		return stack.EnsureToolCommands(), stack.InstallCommands()
+	})
+	if err != nil {
+		return err
+	}
+	if proj.Defined() && flagVerbose {
+		ui.Infof("using .portable.yaml for project tools and install")
 	}
 
 	upStep("installing project dependencies")
+	pathExtra := cfg.RemotePathPrefixes()
 	if err := remoteRun(client, inst.SpriteName, sprites.ExecOptions{
 		Stdin: strings.NewReader(provision.DepsScript(provision.DepsRequest{
-			RemoteDir: inst.RemoteDir,
-			Ensure:    ensure,
-			Install:   install,
+			RemoteDir:       inst.RemoteDir,
+			Ensure:          depsPlan.Ensure,
+			Install:         depsPlan.Install,
+			PathExtra:       pathExtra,
+			AutoLangInstall: depsPlan.AutoLangInstall,
 		})),
 	}, "bash", "-s"); err != nil {
 		ui.Warnf("dependency install failed (continuing): %v", err)
@@ -153,15 +177,23 @@ func runUp(_ *cobra.Command, _ []string) error {
 	}
 
 	ui.Successf("workspace ready")
-	if flagVerbose {
-		ui.Infof("sync:     %s <-> %s", inst.LocalDir, displayRemote(inst.RemoteDir))
-		ui.Infof("shell:    portable ssh")
-		ui.Infof("opencode: portable opencode")
-		ui.Infof("nvim:     portable nvim")
-		ui.Infof("run:      portable run <command>")
-		ui.Infof("sleep:    portable down    destroy: portable destroy")
-	}
+	ui.Infof("sync:  %s <-> %s", inst.LocalDir, displayRemote(inst.RemoteDir))
+	printAgentNextStep()
+	ui.Infof("shell: portable ssh   run: portable run <cmd>")
+	ui.Infof("sleep: portable down   delete: portable destroy")
 	return nil
+}
+
+func printAgentNextStep() {
+	agent, ok := cfg.DefaultAgentConfig()
+	if !ok {
+		return
+	}
+	if agent.LocalOnly {
+		ui.Infof("edit:  Cursor locally (files sync automatically)")
+		return
+	}
+	ui.Infof("agent: portable agent")
 }
 
 // waitForSSH waits for the Sprite's sshd service to be ready before Mutagen
