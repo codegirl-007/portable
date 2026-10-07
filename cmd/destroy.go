@@ -11,13 +11,14 @@ import (
 )
 
 var destroyCmd = &cobra.Command{
-	Use:   "destroy",
-	Short: "Permanently delete the project's workspace",
+	Use:   "destroy [workspace]",
+	Short: "Permanently delete a workspace",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runDestroy,
 }
 
-func runDestroy(_ *cobra.Command, _ []string) error {
-	inst, err := loadInstance()
+func runDestroy(_ *cobra.Command, args []string) error {
+	inst, err := resolveInstance(args)
 	if err != nil {
 		return err
 	}
@@ -29,8 +30,8 @@ func runDestroy(_ *cobra.Command, _ []string) error {
 		return err
 	}
 	_ = sshconfig.Remove(inst.SpriteName)
-	_ = state.Remove(projectDir)
-	_ = state.Unregister(projectDir)
+	_ = state.Remove(inst.ProjectPath)
+	_ = state.Unregister(inst.ProjectPath)
 
 	ui.Successf("destroyed the workspace")
 	return nil
