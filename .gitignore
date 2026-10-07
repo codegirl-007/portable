@@ -8,3 +8,4 @@ PLAN.md
 # Syncthing control files (created in synced folders)
 .stfolder/
 .stignore
+.cursor/
