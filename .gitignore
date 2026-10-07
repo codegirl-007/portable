@@ -1,0 +1,10 @@
+/spike
+/portable
+cmd/spike/spike
+.DS_Store
+.portable/
+PLAN.md
+
+# Syncthing control files (created in synced folders)
+.stfolder/
+.stignore

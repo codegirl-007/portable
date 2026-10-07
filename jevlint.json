@@ -1,0 +1,145 @@
+{
+  "languages": {
+    "go": {}
+  },
+  "minConfidence": 0.8,
+  "rules": [
+    {
+      "id": "credentials-stay-off-sync-path",
+      "description": "Fail when code writes an API key, token, private key, or other secret into the synced project directory (the local project path, RemoteDir, or anything under it). Secrets belong in the laptop home config or the Sprite home directory such as ~/.config/opencode/env. Workspace state may record identity (sprite name, paths, session names) but never credentials. Reading a key in order to provision it onto the Sprite home directory is fine.",
+      "severity": "error",
+      "kinds": ["function"],
+      "include": ["**/*.go"],
+      "exclude": ["**/*_test.go"],
+      "exceptions": [
+        "The write target is under the user's home config or the Sprite home directory, not the project tree.",
+        "The value written is workspace identity such as a sprite name, path, or sync session name, not a credential."
+      ],
+      "context": {
+        "callees": true
+      },
+      "allowSkip": true
+    },
+    {
+      "id": "no-secret-values-in-output",
+      "description": "Fail when a function prints, logs, or interpolates an API key, token, private key, or other secret into stdout, stderr, or a log line. Diagnostics may include paths, sprite names, status, and error messages that do not contain the secret value.",
+      "severity": "error",
+      "kinds": ["function", "statement"],
+      "include": ["**/*.go"],
+      "exclude": ["**/*_test.go"],
+      "exceptions": [
+        "The value written is a path, sprite name, status, count, or a fixed message that does not include the secret.",
+        "The secret is written to a 0600 file, not to a log or the console."
+      ],
+      "allowSkip": true
+    },
+    {
+      "id": "down-does-not-destroy",
+      "description": "Fail when portable down, or a helper used only by down, destroys a Sprite, terminates a Mutagen session, deletes remote workspace data, or removes SSH config or project state. Down must only pause sync so the Sprite can sleep. Permanent deletion belongs to portable destroy.",
+      "severity": "error",
+      "kinds": ["function"],
+      "include": ["cmd/down.go"],
+      "exceptions": [
+        "The call only pauses a Mutagen session or prints status."
+      ],
+      "context": {
+        "callees": true
+      },
+      "allowSkip": true
+    },
+    {
+      "id": "destroy-is-explicit",
+      "description": "Fail when a Sprite is destroyed, a Mutagen session is terminated, SSH config is removed, or project state is unregistered outside portable destroy and the setup-failure path that runs only when keep_on_error is false. Creating, pausing, resuming, and listing workspaces pass.",
+      "severity": "error",
+      "kinds": ["function"],
+      "include": ["cmd/**/*.go", "internal/**/*.go"],
+      "exclude": ["**/*_test.go", "cmd/destroy.go", "internal/sprites/sprites.go", "internal/mutagen/mutagen.go", "internal/sshconfig/sshconfig.go", "internal/state/state.go"],
+      "exceptions": [
+        "The function is failSetup, which destroys only after a setup failure when keep_on_error is false.",
+        "The call only creates, pauses, resumes, flushes, or lists a workspace or sync session."
+      ],
+      "context": {
+        "callees": true
+      },
+      "allowSkip": true
+    },
+    {
+      "id": "ssh-files-are-private",
+      "description": "Fail when code writes ~/.ssh/config, authorized_keys, or another SSH identity or config file with permissions looser than 0600, or rewrites the user's SSH config without the marked portable Host block. Creating ~/.ssh at 0700 and writing the marked block at 0600 pass.",
+      "severity": "error",
+      "kinds": ["function"],
+      "include": ["internal/sshconfig/**/*.go", "internal/provision/**/*.go"],
+      "exclude": ["**/*_test.go"],
+      "exceptions": [
+        "The write uses 0600 for the file and 0700 for the ~/.ssh directory.",
+        "The rewrite preserves or updates only the marked portable Host block."
+      ],
+      "allowSkip": true
+    },
+    {
+      "id": "remote-shell-is-quoted",
+      "description": "Fail when a value from the user, config, or project is interpolated into a remote shell script or ssh/sprite command without shell quoting. Unquoted interpolation lets a path or tool command break out of the intended argument. Using shq, shellQuote, or an equivalent single-quote helper passes. Fixed string literals with no interpolation pass.",
+      "severity": "error",
+      "kinds": ["function", "statement"],
+      "include": ["cmd/**/*.go", "internal/provision/**/*.go", "internal/sprites/**/*.go"],
+      "exclude": ["**/*_test.go"],
+      "exceptions": [
+        "The interpolated value is passed through shq, shellQuote, or an equivalent shell-quoting helper.",
+        "The string is a fixed literal with no user, config, or project value interpolated."
+      ],
+      "allowSkip": true
+    },
+    {
+      "id": "separation-of-concerns",
+      "description": "Each function or type should own one coherent responsibility at a single level of abstraction. Fail when a unit mixes unrelated jobs that could stand alone with clear names — for example CLI flag parsing, domain logic, and subprocess I/O in one function; or config loading, side-effectful provisioning, and user-facing printing without delegation. Pass thin orchestrators in cmd that delegate to internal packages, small helpers with one job, and types that model one concept. Do not fail a function merely for calling several related steps toward one user-visible outcome, or for short glue that forwards to a well-named helper.",
+      "severity": "warning",
+      "kinds": ["function", "type"],
+      "include": ["**/*.go"],
+      "exclude": ["**/*_test.go"],
+      "exceptions": [
+        "The unit is a thin orchestrator that delegates each distinct concern to another function or type.",
+        "The steps are one pipeline stage toward a single named outcome and are not independently reusable domains.",
+        "The type is a config or data struct that groups fields for one concept."
+      ],
+      "context": {
+        "callees": true
+      },
+      "allowSkip": true,
+      "allowAbstain": true,
+      "minConfidence": 0.6
+    },
+    {
+      "id": "concise-comments",
+      "description": "Fail when a comment only restates what the adjacent code already makes clear (variable names, function names, types, or straightforward control flow). Comments should be concise and add information the code cannot carry: non-obvious invariants, security or trust boundaries, external contracts, or why a surprising approach was chosen. Pass brief package or exported API doc comments that summarize behavior for callers, license or generated-code markers, and short notes that explain rationale rather than narrating each line.",
+      "severity": "warning",
+      "kinds": ["function", "type", "statement"],
+      "include": ["**/*.go"],
+      "exclude": ["**/*_test.go"],
+      "exceptions": [
+        "The comment documents a public exported symbol for godoc or summarizes caller-facing behavior beyond the signature.",
+        "The comment explains why, an invariant, or a constraint that is not obvious from names and structure alone.",
+        "The comment is a standard generated-code, license, or build-tag marker."
+      ],
+      "allowSkip": true,
+      "allowAbstain": true,
+      "minConfidence": 0.6
+    },
+    {
+      "id": "swallowed-errors",
+      "description": "Fail errors that are caught, ignored, or discarded without handling, logging, wrapping, or returning. Intentional best-effort operations pass when the intent is clear, such as cleanup after destroy or a missing optional file.",
+      "severity": "error",
+      "kinds": ["function"],
+      "include": ["**/*.go"],
+      "exclude": ["**/*_test.go"],
+      "exceptions": [
+        "The ignored error is from a best-effort cleanup, optional lookup, or missing file.",
+        "The error is logged or returned on the same path."
+      ],
+      "context": {
+        "callees": true
+      },
+      "allowSkip": true,
+      "localize": ["statement"]
+    }
+  ]
+}
