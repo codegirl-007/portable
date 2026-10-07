@@ -9,8 +9,8 @@ automatically.
 Install these once on your laptop:
 
 1. [Go](https://go.dev/dl/) (to build portable)
-2. [Sprite CLI](https://fly.io/sprites/) — then run `sprite login`
-3. [Mutagen](https://github.com/mutagen-io/mutagen/releases) — put `mutagen` on
+2. [Sprite CLI](https://fly.io/sprites/), then run `sprite login`
+3. [Mutagen](https://github.com/mutagen-io/mutagen/releases): put `mutagen` on
    your PATH and follow the release notes for the agent bundle
 
 Build portable:
@@ -25,7 +25,7 @@ Make sure `~/.local/bin` is on your PATH.
 
 ## Set up once (your machine)
 
-`portable setup` is about **your** dev environment — not about a specific repo.
+`portable setup` is about **your** dev environment, not a specific repo.
 
 ```sh
 portable setup
@@ -33,8 +33,8 @@ portable setup
 
 You will choose:
 
-- **Coding agent** — OpenCode, Claude Code, OpenAI Codex, or Cursor Agent
-- **Personal extras** — Neovim, GitHub CLI, dotfiles (optional)
+- **Coding agent**: OpenCode, Claude Code, OpenAI Codex, or Cursor Agent
+- **Personal extras**: Neovim, GitHub CLI, dotfiles (optional)
 
 That saves to `~/.config/portable/config.toml` and applies to every project.
 
@@ -84,47 +84,68 @@ portable destroy
 
 ## Per-project: tools this repo needs
 
-Each project can list **runtimes and CLIs** the workspace should have, plus
-**install commands** to run in the repo after sync. Add `.portable.yaml` in the
-project root:
+There is no separate `portable install` command. After sync, **`portable up`**
+runs on the remote workspace, in order:
+
+1. **tools**: install runtimes/CLIs (you give `command` + `install`; portable
+   runs the install only when `command -v` fails)
+2. **ensure**: other prep (env files, corepack, shell profile tweaks)
+3. **install**: project dependency commands in the synced repo directory
+
+That runs on every `up`. Use idempotent lines for **ensure** and **install**
+(`pnpm install`, `test -f .env || cp …`, and so on).
+
+Add `.portable.yaml` in the project root.
+
+**Bun + Rust** (typical full-stack repo):
 
 ```yaml
-# This project uses Bun and Rust on the workspace.
 tools:
-  - bun
-  - rust
+  - command: bun
+    install: curl -fsSL https://bun.sh/install | bash
+  - command: cargo
+    install: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
-# Run in the project directory after each portable up.
+ensure:
+  - grep -q '.cargo/env' "$HOME/.bashrc" 2>/dev/null || echo '. "$HOME/.cargo/env"' >> "$HOME/.bashrc"
+
 install:
   - bun install
   - cargo fetch
 ```
 
-Supported `tools` names: `bun`, `deno`, `node`, `npm`, `pnpm`, `yarn`, `go`,
-`rust`.
-
-Use `ensure` when you need a one-time prep step that is not a built-in `tools`
-name — for example enabling Corepack or creating a local env file before
-`pnpm install`:
+**pnpm + Rust** (Node via apt, pnpm via Corepack):
 
 ```yaml
 tools:
-  - node
+  - command: node
+    install: curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash - && sudo apt-get install -y -qq nodejs
+  - command: cargo
+    install: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
 ensure:
   - corepack enable
-  - test -f .env || cp .env.example .env
+  - grep -q '.cargo/env' "$HOME/.bashrc" 2>/dev/null || echo '. "$HOME/.cargo/env"' >> "$HOME/.bashrc"
 
 install:
   - pnpm install
+  - cargo fetch
+```
+
+**Tools only** (runtime on the workspace, no project install step yet):
+
+```yaml
+tools:
+  - command: go
+    install: sudo apt-get update -qq && sudo apt-get install -y -qq golang-go
 ```
 
 If there is no `.portable.yaml`, portable guesses from files like `go.mod` and
-`package.json`. Once you add a project file, **you** define tools and install —
-portable does not second-guess the stack.
+`package.json` during **`portable up`**. Once you add a project file, **you**
+define tools, ensure, and install; portable does not second-guess the stack.
 
 ## Change your mind later
 
-- Different agent or dotfiles → `portable setup` again
-- Different project tools → edit `.portable.yaml`, then `portable up`
-- Re-run workspace bootstrap → `portable up --reprovision`
+- Different agent or dotfiles: `portable setup` again
+- Different project tools: edit `.portable.yaml`, then `portable up`
+- Re-run workspace bootstrap: `portable up --reprovision`

@@ -1,23 +1,57 @@
 package project
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
-func TestEnsureCommandsBun(t *testing.T) {
-	cmds, err := EnsureCommands([]string{"bun"})
-	if err != nil || len(cmds) != 1 {
-		t.Fatalf("EnsureCommands(bun) = %v, %v", cmds, err)
+func TestDepsPlanToolsGuarded(t *testing.T) {
+	plan, err := DepsPlanFromConfig(Config{
+		Tools: []ToolEntry{{
+			Command: "bun",
+			Install: "curl -fsSL https://bun.sh/install | bash",
+		}},
+		Install: []string{"bun install"},
+	}, func() ([]string, []string) {
+		return []string{"detect-ensure"}, []string{"detect-install"}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Ensure) != 1 {
+		t.Fatalf("ensure = %v", plan.Ensure)
+	}
+	if !strings.HasPrefix(plan.Ensure[0], "command -v bun ") {
+		t.Fatalf("ensure[0] = %q", plan.Ensure[0])
+	}
+	if !strings.Contains(plan.Ensure[0], "curl -fsSL https://bun.sh/install | bash") {
+		t.Fatalf("ensure[0] = %q", plan.Ensure[0])
 	}
 }
 
-func TestEnsureCommandsUnknown(t *testing.T) {
-	if _, err := EnsureCommands([]string{"fortran"}); err == nil {
-		t.Fatal("expected error for unknown tool")
+func TestDepsPlanToolsThenEnsure(t *testing.T) {
+	plan, err := DepsPlanFromConfig(Config{
+		Tools: []ToolEntry{{
+			Command: "node",
+			Install: "apt-get install -y nodejs",
+		}},
+		Ensure:  []string{"corepack enable"},
+		Install: []string{"pnpm install"},
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Ensure) != 2 || plan.Ensure[1] != "corepack enable" {
+		t.Fatalf("ensure = %v", plan.Ensure)
 	}
 }
 
 func TestDepsPlanProjectOverridesDetect(t *testing.T) {
 	plan, err := DepsPlanFromConfig(Config{
-		Tools:   []string{"bun"},
+		Tools: []ToolEntry{{
+			Command: "bun",
+			Install: "curl -fsSL https://bun.sh/install | bash",
+		}},
 		Install: []string{"bun install"},
 	}, func() ([]string, []string) {
 		return []string{"detect-ensure"}, []string{"detect-install"}
