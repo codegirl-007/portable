@@ -8,17 +8,18 @@ import (
 )
 
 var downCmd = &cobra.Command{
-	Use:   "down",
+	Use:   "down [workspace]",
 	Short: "Pause sync so the workspace can sleep (free)",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runDown,
 }
 
-func runDown(_ *cobra.Command, _ []string) error {
-	inst, err := loadInstance()
+func runDown(_ *cobra.Command, args []string) error {
+	inst, err := resolveInstance(args)
 	if err != nil {
 		return err
 	}
-	ui.Step("pausing sync...")
+	ui.Step("pausing sync for %s", inst.SpriteName)
 	if err := mutagen.Pause(bg(), inst.SyncSession); err != nil {
 		ui.Warnf("%v", err)
 	}

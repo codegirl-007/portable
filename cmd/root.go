@@ -62,7 +62,7 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().StringVar(&flagConfig, "config", "", "config file (default ~/.config/portable/config.toml)")
 	rootCmd.PersistentFlags().BoolVar(&flagVerbose, "verbose", false, "stream remote setup and dependency output")
-	rootCmd.AddCommand(setupCmd, upCmd, downCmd, destroyCmd, agentCmd, sshCmd, nvimCmd, runCmd, statusCmd, listCmd)
+	rootCmd.AddCommand(setupCmd, upCmd, downCmd, destroyCmd, agentCmd, sshCmd, nvimCmd, runCmd, statusCmd, lsCmd, listCmd)
 }
 
 func bg() context.Context { return context.Background() }
@@ -95,6 +95,17 @@ func newInstance() (*state.Instance, error) {
 		SyncSession: sprite,
 		CreatedAt:   time.Now(),
 	}, nil
+}
+
+// resolveInstance returns the workspace for an optional CLI name, or the current project.
+func resolveInstance(args []string) (*state.Instance, error) {
+	if len(args) == 0 {
+		return loadInstance()
+	}
+	if len(args) > 1 {
+		return nil, fmt.Errorf("expected at most one workspace name")
+	}
+	return state.FindByWorkspace(args[0])
 }
 
 // loadInstance returns the recorded instance for the current project.

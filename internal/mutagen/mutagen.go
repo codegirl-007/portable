@@ -52,6 +52,10 @@ func List(ctx context.Context) ([]Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	return parseSessionList(out), nil
+}
+
+func parseSessionList(out string) []Session {
 	var sessions []Session
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
@@ -61,7 +65,28 @@ func List(ctx context.Context) ([]Session, error) {
 			sessions[len(sessions)-1].Status = strings.TrimSpace(strings.TrimPrefix(line, "Status:"))
 		}
 	}
-	return sessions, nil
+	return sessions
+}
+
+// StatusMap returns sync session name to status text.
+func StatusMap(ctx context.Context) (map[string]string, error) {
+	sessions, err := List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m := make(map[string]string, len(sessions))
+	for _, s := range sessions {
+		m[s.Name] = s.Status
+	}
+	return m, nil
+}
+
+// SyncRunning reports whether a mutagen status means the workspace is up (sync active).
+func SyncRunning(status string) bool {
+	if status == "" {
+		return false
+	}
+	return !strings.Contains(status, "Paused")
 }
 
 // Exists reports whether a session with the given name exists.

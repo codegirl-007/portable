@@ -150,6 +150,26 @@ func Unregister(projectPath string) error {
 	return saveRegistry(m)
 }
 
+// FindByWorkspace looks up a registered instance by sprite name, sync session,
+// or project slug (as shown in portable ls / portable list).
+func FindByWorkspace(id string) (*Instance, error) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, fmt.Errorf("workspace name is empty")
+	}
+	m, err := LoadRegistry()
+	if err != nil {
+		return nil, err
+	}
+	for _, in := range m {
+		if in.SpriteName == id || in.SyncSession == id || in.ProjectSlug == id {
+			copy := in
+			return &copy, nil
+		}
+	}
+	return nil, fmt.Errorf("unknown workspace %q (see `portable list`)", id)
+}
+
 // Sorted returns the registry values ordered by creation time.
 func Sorted(m map[string]Instance) []Instance {
 	out := make([]Instance, 0, len(m))
