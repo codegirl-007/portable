@@ -92,7 +92,10 @@ func runUp(_ *cobra.Command, _ []string) error {
 			RemoteDir:       inst.RemoteDir,
 			CredentialFiles: credFiles,
 		})
-		script := provision.SetupScript(setupReq)
+		script, err := provision.SetupScript(setupReq)
+		if err != nil {
+			return err
+		}
 		if err := remoteRun(client, inst.SpriteName, sprites.ExecOptions{Stdin: strings.NewReader(script)}, "bash", "-s"); err != nil {
 			return failSetup(inst, err)
 		}
@@ -157,14 +160,18 @@ func runUp(_ *cobra.Command, _ []string) error {
 
 	upStep("installing project dependencies")
 	pathExtra := cfg.RemotePathPrefixes()
+	depsScript, err := provision.DepsScript(provision.DepsRequest{
+		RemoteDir:       inst.RemoteDir,
+		Ensure:          depsPlan.Ensure,
+		Install:         depsPlan.Install,
+		PathExtra:       pathExtra,
+		AutoLangInstall: depsPlan.AutoLangInstall,
+	})
+	if err != nil {
+		return err
+	}
 	if err := remoteRun(client, inst.SpriteName, sprites.ExecOptions{
-		Stdin: strings.NewReader(provision.DepsScript(provision.DepsRequest{
-			RemoteDir:       inst.RemoteDir,
-			Ensure:          depsPlan.Ensure,
-			Install:         depsPlan.Install,
-			PathExtra:       pathExtra,
-			AutoLangInstall: depsPlan.AutoLangInstall,
-		})),
+		Stdin: strings.NewReader(depsScript),
 	}, "bash", "-s"); err != nil {
 		ui.Warnf("dependency install failed (continuing): %v", err)
 	}

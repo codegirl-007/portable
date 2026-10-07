@@ -48,7 +48,11 @@ func RunInteractive(force bool) (*WizardResult, error) {
 	var tools []string
 	if ui.Confirm("Add custom one-time workspace bootstrap commands (advanced)?") {
 		fmt.Println("Shell commands run once when a workspace is first created. Empty line to finish:")
-		tools = readLinesUntilEmpty()
+		var err error
+		tools, err = readLinesUntilEmpty()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &WizardResult{
@@ -73,7 +77,10 @@ func readIntChoice(prompt string, min, max int) (int, error) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
 		fmt.Printf("%s [%d-%d]: ", prompt, min, max)
-		line, _ := reader.ReadString('\n')
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return 0, err
+		}
 		line = strings.TrimSpace(line)
 		n, err := strconv.Atoi(line)
 		if err != nil || n < min || n > max {
@@ -105,7 +112,10 @@ func readDotfilesInteractive(nvimOnWorkspace bool) ([]string, error) {
 	fmt.Println("Or enter numbers to copy (e.g. 1 2), a comma-separated list, 'all' for every suggestion, or 'none'.")
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Print("Dotfiles [default]: ")
-	line, _ := reader.ReadString('\n')
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
 	line = strings.TrimSpace(strings.ToLower(line))
 
 	switch line {
@@ -174,18 +184,21 @@ func parseNumberList(line string, max int) []int {
 	return nums
 }
 
-func readLinesUntilEmpty() []string {
+func readLinesUntilEmpty() ([]string, error) {
 	reader := bufio.NewReader(os.Stdin)
 	var out []string
 	for {
-		line, _ := reader.ReadString('\n')
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return nil, err
+		}
 		line = strings.TrimSpace(line)
 		if line == "" {
 			break
 		}
 		out = append(out, line)
 	}
-	return out
+	return out, nil
 }
 
 func configExists() bool {

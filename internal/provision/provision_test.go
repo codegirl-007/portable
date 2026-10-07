@@ -11,11 +11,14 @@ import (
 )
 
 func TestSetupScriptMinimal(t *testing.T) {
-	s := SetupScript(SetupRequest{
+	s, err := SetupScript(SetupRequest{
 		PublicKey: "ssh-ed25519 AAAA test@host",
 		RemoteDir: "/home/sprite/app",
 		Ripgrep:   true,
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, want := range []string{
 		"set -euo pipefail",
 		"openssh-server",
@@ -39,12 +42,15 @@ func TestSetupScriptMinimal(t *testing.T) {
 }
 
 func TestSetupScriptCredentialMkdir(t *testing.T) {
-	s := SetupScript(SetupRequest{
+	s, err := SetupScript(SetupRequest{
 		RemoteDir: "/home/sprite/app",
 		CredentialFiles: []CredentialFile{
 			{RelPath: ".config/portable/agent.env", Content: "export CURSOR_API_KEY='x'\n"},
 		},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(s, `mkdir -p "$HOME/'.config/portable'"`) {
 		t.Fatalf("mkdir must not shell-quote the directory segment\n%s", s)
 	}
@@ -54,7 +60,7 @@ func TestSetupScriptCredentialMkdir(t *testing.T) {
 }
 
 func TestSetupScriptOpenCode(t *testing.T) {
-	s := SetupScript(SetupRequest{
+	s, err := SetupScript(SetupRequest{
 		PublicKey: "ssh-ed25519 AAAA test@host",
 		RemoteDir: "/home/sprite/app",
 		AgentInstall: []string{
@@ -66,6 +72,9 @@ func TestSetupScriptOpenCode(t *testing.T) {
 		OpenCodeModel: "opencode-go/deepseek-v4.1-flash",
 		Nvim:          true,
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, want := range []string{
 		"opencode.ai/install",
 		"nvim-linux-x86_64.tar.gz",
@@ -105,12 +114,15 @@ func TestNewSetupRequestFromConfig(t *testing.T) {
 }
 
 func TestDepsScript(t *testing.T) {
-	s := DepsScript(DepsRequest{
+	s, err := DepsScript(DepsRequest{
 		RemoteDir:       "/home/sprite/app",
 		Ensure:          []string{"echo ensure-tool"},
 		Install:         []string{"npm install"},
 		AutoLangInstall: true,
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, want := range []string{
 		`REMOTE_DIR='/home/sprite/app'`,
 		`cd "$REMOTE_DIR"`,
@@ -135,26 +147,34 @@ func TestScriptSyntax(t *testing.T) {
 	if err != nil {
 		t.Skip("bash not available")
 	}
+	setupScript, err := SetupScript(SetupRequest{
+		PublicKey: "ssh-ed25519 AAAA test@host",
+		RemoteDir: "/home/sprite/app",
+		AgentInstall: []string{
+			`command -v opencode >/dev/null 2>&1 || true`,
+		},
+		CredentialFiles: []CredentialFile{
+			{RelPath: ".config/opencode/env", Content: "export OPENCODE_API_KEY='x'\n"},
+		},
+		Nvim:    true,
+		Ripgrep: true,
+		Tools:   []string{"echo tool"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	depsScript, err := DepsScript(DepsRequest{
+		RemoteDir:       "/home/sprite/app",
+		Ensure:          []string{"echo ensure"},
+		Install:         []string{"npm install"},
+		AutoLangInstall: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	scripts := map[string]string{
-		"setup": SetupScript(SetupRequest{
-			PublicKey: "ssh-ed25519 AAAA test@host",
-			RemoteDir: "/home/sprite/app",
-			AgentInstall: []string{
-				`command -v opencode >/dev/null 2>&1 || true`,
-			},
-			CredentialFiles: []CredentialFile{
-				{RelPath: ".config/opencode/env", Content: "export OPENCODE_API_KEY='x'\n"},
-			},
-			Nvim:    true,
-			Ripgrep: true,
-			Tools:   []string{"echo tool"},
-		}),
-		"deps": DepsScript(DepsRequest{
-			RemoteDir:       "/home/sprite/app",
-			Ensure:          []string{"echo ensure"},
-			Install:         []string{"npm install"},
-			AutoLangInstall: true,
-		}),
+		"setup": setupScript,
+		"deps":  depsScript,
 	}
 	for name, script := range scripts {
 		f := filepath.Join(t.TempDir(), name+".sh")

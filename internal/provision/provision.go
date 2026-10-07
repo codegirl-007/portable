@@ -40,15 +40,19 @@ type DepsRequest struct {
 }
 
 // SetupScript renders the one-time Sprite setup script.
-func SetupScript(req SetupRequest) string {
+func SetupScript(req SetupRequest) (string, error) {
 	var b strings.Builder
 	w := func(format string, args ...any) { b.WriteString(fmt.Sprintf(format, args...) + "\n") }
+	writeln := func(s string) { b.WriteString(s + "\n") }
 
-	pathBits := []string{`$HOME/.local/bin`, `$HOME/.bun/bin`, `$HOME/.deno/bin`, `$HOME/.opencode/bin`}
+	pathLine, err := PathExportLine(nil)
+	if err != nil {
+		return "", err
+	}
 	w("#!/usr/bin/env bash")
 	w("set -euo pipefail")
 	w(`export DEBIAN_FRONTEND=noninteractive`)
-	w(`export PATH="%s:$PATH"`, strings.Join(pathBits, ":"))
+	writeln(pathLine)
 	w(`log() { printf '\n==> %%s\n' "$*"; }`)
 	w("")
 	w("REMOTE_DIR=%s", shq(req.RemoteDir))
@@ -92,8 +96,8 @@ func SetupScript(req SetupRequest) string {
 	if len(req.AgentInstall) > 0 {
 		w("")
 		w(`log "coding agent"`)
-		for _, cmd := range req.AgentInstall {
-			w("%s", cmd)
+		if err := writeLines(writeln, req.AgentInstall); err != nil {
+			return "", err
 		}
 	}
 
@@ -155,14 +159,17 @@ func SetupScript(req SetupRequest) string {
 		w(`log "tools"`)
 		w(`command -v gcc >/dev/null 2>&1 || sudo apt-get install -y -qq build-essential >/dev/null 2>&1 || true`)
 		w(`export PATH="$HOME/.local/bin:$HOME/go/bin:$PATH"`)
+		if err := ValidateShellLines(req.Tools); err != nil {
+			return "", err
+		}
 		for _, cmd := range req.Tools {
-			w("%s || echo 'warning: tool command failed'", cmd)
+			writeln(cmd + ` || echo 'warning: tool command failed'`)
 		}
 	}
 	w("")
 	w(`touch "$HOME/.portable-provisioned"`)
 	w(`log "provisioned"`)
-	return b.String()
+	return b.String(), nil
 }
 
 func pathDir(rel string) string {
@@ -173,18 +180,19 @@ func pathDir(rel string) string {
 }
 
 // DepsScript renders the dependency-installation script.
-func DepsScript(req DepsRequest) string {
+func DepsScript(req DepsRequest) (string, error) {
 	var b strings.Builder
 	w := func(format string, args ...any) { b.WriteString(fmt.Sprintf(format, args...) + "\n") }
+	writeln := func(s string) { b.WriteString(s + "\n") }
 
-	pathBits := []string{`$HOME/.bun/bin`, `$HOME/.deno/bin`, `$HOME/.opencode/bin`, `$HOME/.local/bin`}
-	for _, p := range req.PathExtra {
-		pathBits = append(pathBits, p)
+	pathLine, err := PathExportLine(req.PathExtra)
+	if err != nil {
+		return "", err
 	}
 
 	w("#!/usr/bin/env bash")
 	w("set -euo pipefail")
-	w(`export PATH="%s:$PATH"`, strings.Join(pathBits, ":"))
+	writeln(pathLine)
 	w(`log() { printf '\n==> %%s\n' "$*"; }`)
 	w("REMOTE_DIR=%s", shq(req.RemoteDir))
 	w(`cd "$REMOTE_DIR"`)
@@ -196,20 +204,20 @@ func DepsScript(req DepsRequest) string {
 	}
 	if len(req.Ensure) > 0 {
 		w("")
-		for _, c := range req.Ensure {
-			w("%s", c)
+		if err := writeLines(writeln, req.Ensure); err != nil {
+			return "", err
 		}
 	}
 	if len(req.Install) > 0 {
 		w("")
 		w(`log "project install"`)
-		for _, c := range req.Install {
-			w("%s", c)
+		if err := writeLines(writeln, req.Install); err != nil {
+			return "", err
 		}
 	}
 	w("")
 	w(`log "dependencies ready"`)
-	return b.String()
+	return b.String(), nil
 }
 
 func shq(s string) string {

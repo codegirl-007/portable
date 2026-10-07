@@ -90,6 +90,41 @@
       "allowSkip": true
     },
     {
+      "id": "separation-of-concerns",
+      "description": "Each function or type should own one coherent responsibility at a single level of abstraction. Fail when a unit mixes unrelated jobs that could stand alone with clear names — for example CLI flag parsing, domain logic, and subprocess I/O in one function; or config loading, side-effectful provisioning, and user-facing printing without delegation. Pass thin orchestrators in cmd that delegate to internal packages, small helpers with one job, and types that model one concept. Do not fail a function merely for calling several related steps toward one user-visible outcome, or for short glue that forwards to a well-named helper.",
+      "severity": "warning",
+      "kinds": ["function", "type"],
+      "include": ["**/*.go"],
+      "exclude": ["**/*_test.go"],
+      "exceptions": [
+        "The unit is a thin orchestrator that delegates each distinct concern to another function or type.",
+        "The steps are one pipeline stage toward a single named outcome and are not independently reusable domains.",
+        "The type is a config or data struct that groups fields for one concept."
+      ],
+      "context": {
+        "callees": true
+      },
+      "allowSkip": true,
+      "allowAbstain": true,
+      "minConfidence": 0.6
+    },
+    {
+      "id": "concise-comments",
+      "description": "Fail when a comment only restates what the adjacent code already makes clear (variable names, function names, types, or straightforward control flow). Comments should be concise and add information the code cannot carry: non-obvious invariants, security or trust boundaries, external contracts, or why a surprising approach was chosen. Pass brief package or exported API doc comments that summarize behavior for callers, license or generated-code markers, and short notes that explain rationale rather than narrating each line.",
+      "severity": "warning",
+      "kinds": ["function", "type", "statement"],
+      "include": ["**/*.go"],
+      "exclude": ["**/*_test.go"],
+      "exceptions": [
+        "The comment documents a public exported symbol for godoc or summarizes caller-facing behavior beyond the signature.",
+        "The comment explains why, an invariant, or a constraint that is not obvious from names and structure alone.",
+        "The comment is a standard generated-code, license, or build-tag marker."
+      ],
+      "allowSkip": true,
+      "allowAbstain": true,
+      "minConfidence": 0.6
+    },
+    {
       "id": "swallowed-errors",
       "description": "Fail errors that are caught, ignored, or discarded without handling, logging, wrapping, or returning. Intentional best-effort operations pass when the intent is clear, such as cleanup after destroy or a missing optional file.",
       "severity": "error",

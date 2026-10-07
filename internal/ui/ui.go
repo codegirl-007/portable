@@ -32,7 +32,10 @@ func Confirm(prompt string) bool {
 		return false
 	}
 	fmt.Printf("%s [y/N] ", prompt)
-	line, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil {
+		return false
+	}
 	switch strings.ToLower(strings.TrimSpace(line)) {
 	case "y", "yes":
 		return true
