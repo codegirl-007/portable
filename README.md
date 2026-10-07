@@ -1,74 +1,130 @@
 # portable
 
-Use a fast, persistent Fly workspace for a project while keeping the laptop's
-project directory as the source of truth. `portable` syncs files both ways with
-Mutagen, then runs tools such as OpenCode and Neovim in the remote workspace.
+Keep coding on your laptop. Run your AI agent and heavy commands on a fast
+remote Linux machine. Your project folder stays on your laptop and stays in sync
+automatically.
 
-## Install
+## Before you start
 
-Requirements: Go, the [Sprite CLI](https://fly.io/sprites/) (authenticated with
-`sprite login`), and [Mutagen](https://github.com/mutagen-io/mutagen/releases).
-Install both Mutagen release artifacts: `mutagen` on `PATH` and
-`mutagen-agents.tar.gz` in `~/.local/libexec/`.
+Install these once on your laptop:
 
-Build and install portable from this repository:
+1. [Go](https://go.dev/dl/) (to build portable)
+2. [Sprite CLI](https://fly.io/sprites/) — then run `sprite login`
+3. [Mutagen](https://github.com/mutagen-io/mutagen/releases) — put `mutagen` on
+   your PATH and follow the release notes for the agent bundle
+
+Build portable:
 
 ```sh
+git clone https://github.com/codegirl-007/portable.git
+cd portable
 go build -o ~/.local/bin/portable .
 ```
 
-## Use
+Make sure `~/.local/bin` is on your PATH.
 
-Run commands from the project directory:
+## Set up once (your machine)
+
+`portable setup` is about **your** dev environment — not about a specific repo.
 
 ```sh
-cd ~/projects/my-project
-portable up                 # create/wake workspace, sync files, install deps
-portable opencode           # OpenCode TUI in the remote project
-portable nvim               # Neovim in the remote project
-portable run go test ./...  # Run a command remotely
-portable ssh                # Open a remote shell
-portable status
-portable down               # Pause sync; workspace sleeps
-portable destroy            # Permanently delete workspace and its data
+portable setup
 ```
 
-After the first setup, `up` normally resumes in a couple of seconds. Changes
-made locally or remotely sync automatically. `portable opencode --continue`
-continues the last OpenCode session.
+You will choose:
 
-## Configuration
+- **Coding agent** — OpenCode, Claude Code, OpenAI Codex, or Cursor Agent
+- **Personal extras** — Neovim, GitHub CLI, dotfiles (optional)
 
-There are two separate config files:
+That saves to `~/.config/portable/config.toml` and applies to every project.
 
-- **Global defaults**, on your laptop: `~/.config/portable/config.toml`.
-- **Project-specific settings**, inside that project's directory:
-  `~/projects/my-project/.portable.yaml`.
+Set the API key for your agent on your laptop before the first `portable up`
+(if the agent needs one):
 
-For example, set shared defaults globally:
+| Agent | Environment variable |
+| --- | --- |
+| OpenCode | `OPENCODE_API_KEY` (or use OpenCode locally) |
+| Claude Code | `ANTHROPIC_API_KEY` |
+| OpenAI Codex | `OPENAI_API_KEY` |
+| Cursor Agent | `CURSOR_API_KEY` |
 
-```toml
-# ~/.config/portable/config.toml
-sprite_prefix = "portable"
-sync_ignores = [".git", "node_modules", "target", "dist", "build"]
-dotfiles = [".config/nvim", ".tmux.conf", ".gitconfig"]
-tools = ["GOBIN=\"$HOME/.local/bin\" go install example.com/tool/cmd/tool@latest"]
+## Use with a project
+
+```sh
+cd ~/projects/my-app
+portable up
 ```
+
+First time takes a few minutes. After that, `portable up` is usually quick.
+
+**Start your agent:**
+
+```sh
+portable agent
+```
+
+**Run anything else on the remote machine:**
+
+```sh
+portable run go test ./...
+portable ssh
+```
+
+**When you're done for the day:**
+
+```sh
+portable down
+```
+
+**Remove the remote machine completely:**
+
+```sh
+portable destroy
+```
+
+## Per-project: tools this repo needs
+
+Each project can list **runtimes and CLIs** the workspace should have, plus
+**install commands** to run in the repo after sync. Add `.portable.yaml` in the
+project root:
 
 ```yaml
-# ~/projects/my-project/.portable.yaml
-package_manager: bun # optional; normally detected from the project files
+# This project uses Bun and Rust on the workspace.
+tools:
+  - bun
+  - rust
+
+# Run in the project directory after each portable up.
+install:
+  - bun install
+  - cargo fetch
 ```
 
-`dotfiles` lists home-relative paths copied once when the workspace is
-provisioned; use `portable up --reprovision` to copy them again and rerun
-one-time provisioning.
-`tools` are one-time provisioning commands. Portable detects the package
-manager from files such as `package.json` and its lockfile, then runs the usual
-install command (`bun install`, `npm ci`, etc.). You normally don't need to
-configure `package_manager`; set it only if detection picks the wrong manager.
+Supported `tools` names: `bun`, `deno`, `node`, `npm`, `pnpm`, `yarn`, `go`,
+`rust`.
 
-OpenCode Go credentials are read from the local OpenCode setup and provisioned
-to the remote workspace. Other secrets copied in dotfiles or provisioning
-commands are stored on that workspace—avoid putting credentials in synced
-project files.
+Use `ensure` when you need a one-time prep step that is not a built-in `tools`
+name — for example enabling Corepack or creating a local env file before
+`pnpm install`:
+
+```yaml
+tools:
+  - node
+
+ensure:
+  - corepack enable
+  - test -f .env || cp .env.example .env
+
+install:
+  - pnpm install
+```
+
+If there is no `.portable.yaml`, portable guesses from files like `go.mod` and
+`package.json`. Once you add a project file, **you** define tools and install —
+portable does not second-guess the stack.
+
+## Change your mind later
+
+- Different agent or dotfiles → `portable setup` again
+- Different project tools → edit `.portable.yaml`, then `portable up`
+- Re-run workspace bootstrap → `portable up --reprovision`

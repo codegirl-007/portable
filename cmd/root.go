@@ -30,8 +30,9 @@ var rootCmd = &cobra.Command{
 	Use:   "portable",
 	Short: "Synced remote workspaces on Fly.io",
 	Long: "portable keeps the current project directory in sync with a remote\n" +
-		"Linux workspace and runs opencode or other heavy commands there.\n" +
-		"Sync is continuous and two-way via Mutagen over SSH.",
+		"Linux workspace and runs your coding agent or other heavy commands there.\n" +
+		"Sync is continuous and two-way via Mutagen over SSH.\n\n" +
+		"Run `portable setup` once, then `portable up` in each project.",
 	Version:       Version,
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -61,14 +62,10 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().StringVar(&flagConfig, "config", "", "config file (default ~/.config/portable/config.toml)")
 	rootCmd.PersistentFlags().BoolVar(&flagVerbose, "verbose", false, "stream remote setup and dependency output")
-	rootCmd.AddCommand(upCmd, downCmd, destroyCmd, sshCmd, opencodeCmd, nvimCmd, runCmd, statusCmd, listCmd)
+	rootCmd.AddCommand(setupCmd, upCmd, downCmd, destroyCmd, agentCmd, sshCmd, nvimCmd, runCmd, statusCmd, listCmd)
 }
 
 func bg() context.Context { return context.Background() }
-
-// remoteOpencodeEnv is a shell prefix that puts opencode on PATH and loads the
-// provisioned OpenCode Go credentials.
-const remoteOpencodeEnv = `export PATH="$HOME/.opencode/bin:$HOME/.local/bin:$PATH"; if [ -f "$HOME/.config/opencode/env" ]; then set -a; . "$HOME/.config/opencode/env"; set +a; fi; if [ -f "$HOME/.config/jevlint/env" ]; then set -a; . "$HOME/.config/jevlint/env"; set +a; fi; `
 
 // shellQuote single-quotes a string for a remote shell command.
 func shellQuote(s string) string {
@@ -113,7 +110,7 @@ func loadInstance() (*state.Instance, error) {
 }
 
 // ensureSync resumes the sync session if it is paused (best effort), so
-// opencode/ssh/run see current files after a `portable down`.
+// agent/ssh/run see current files after a `portable down`.
 func ensureSync(inst *state.Instance) {
 	if inst.SyncSession == "" {
 		return

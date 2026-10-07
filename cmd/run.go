@@ -26,6 +26,6 @@ func runRun(_ *cobra.Command, args []string) error {
 	for i, a := range args {
 		quoted[i] = shellQuote(a)
 	}
-	command := remoteOpencodeEnv + strings.Join(quoted, " ")
+	command := cfg.RemoteShellPreamble() + strings.Join(quoted, " ")
 	return sprites.New().Exec(bg(), inst.SpriteName, sprites.ExecOptions{Dir: inst.RemoteDir}, "sh", "-c", command)
 }
