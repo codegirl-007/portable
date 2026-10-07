@@ -6,7 +6,29 @@ import (
 	"strings"
 )
 
-var safePathSegment = regexp.MustCompile(`^\$HOME(/[a-zA-Z0-9._+-]+)*$`)
+var (
+	safePathSegment   = regexp.MustCompile(`^\$HOME(/[a-zA-Z0-9._+-]+)*$`)
+	safeToolCommand   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._+-]*$`)
+)
+
+// GuardedToolInstall wraps an install script so it runs only when commandName is not on PATH.
+func GuardedToolInstall(commandName, installLine string) (string, error) {
+	commandName = strings.TrimSpace(commandName)
+	installLine = strings.TrimSpace(installLine)
+	if installLine == "" {
+		return "", fmt.Errorf("provision: empty tool install command")
+	}
+	if err := ValidateShellLines([]string{installLine}); err != nil {
+		return "", err
+	}
+	if commandName == "" {
+		return "", fmt.Errorf("provision: tool command name is required")
+	}
+	if !safeToolCommand.MatchString(commandName) {
+		return "", fmt.Errorf("provision: invalid tool command name %q", commandName)
+	}
+	return fmt.Sprintf(`command -v %s >/dev/null 2>&1 || %s`, commandName, installLine), nil
+}
 
 // AppendPathSegments adds validated PATH prefixes for generated shell scripts.
 func AppendPathSegments(base, extra []string) ([]string, error) {
