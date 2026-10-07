@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/codegirl-007/portable/internal/config"
+	"github.com/codegirl-007/portable/internal/setup"
 	"github.com/codegirl-007/portable/internal/sprites"
 	"github.com/codegirl-007/portable/internal/ui"
 )
@@ -37,8 +38,9 @@ func runAgent(_ *cobra.Command, args []string) error {
 			"To run a remote CLI agent instead, run `portable setup` and pick OpenCode or Claude Code",
 			agent.Label)
 	}
-	if strings.TrimSpace(agent.Run) == "" {
-		return fmt.Errorf("agent %q has no run command; run `portable setup`", agent.Name)
+	run, err := setup.RunCommand(cfg.DefaultAgent)
+	if err != nil {
+		return fmt.Errorf("agent %q: %w; run `portable setup`", agent.Name, err)
 	}
 
 	inst, err := loadInstance()
@@ -48,7 +50,7 @@ func runAgent(_ *cobra.Command, args []string) error {
 	ensureSync(inst)
 	ui.Step("starting %s in workspace", agent.Label)
 
-	command := cfg.RemoteShellPreamble() + agent.Run
+	command := cfg.RemoteShellPreamble() + run
 	if len(args) > 0 {
 		quoted := make([]string, len(args))
 		for i, a := range args {
