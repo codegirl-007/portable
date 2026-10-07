@@ -13,7 +13,10 @@ Install these once on your laptop:
 3. [Mutagen](https://github.com/mutagen-io/mutagen/releases): put `mutagen` on
    your PATH and follow the release notes for the agent bundle
 
-Build portable:
+Install portable from [GitHub Releases](https://github.com/codegirl-007/portable/releases)
+(linux/darwin/windows, amd64 and arm64). Unzip or extract, put `portable` on your PATH.
+
+Or build from source:
 
 ```sh
 git clone https://github.com/codegirl-007/portable.git
