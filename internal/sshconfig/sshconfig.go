@@ -3,6 +3,7 @@
 package sshconfig
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -37,8 +38,11 @@ func Ensure(sprite string) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 		return err
 	}
-	b, _ := os.ReadFile(p)
-	s := removeBlock(string(b), Alias(sprite))
+	existing, err := readConfig(p)
+	if err != nil {
+		return err
+	}
+	s := removeBlock(existing, Alias(sprite))
 	block := fmt.Sprintf("%s\nHost %s\n  HostName %s\n  User sprite\n  StrictHostKeyChecking no\n  UserKnownHostsFile /dev/null\n  ProxyCommand sprite proxy -s %s -W 22\n%s\n",
 		begin(Alias(sprite)), Alias(sprite), sprite, sprite, end(Alias(sprite)))
 	s = strings.TrimRight(s, "\n") + "\n\n" + block
@@ -54,17 +58,31 @@ func Remove(sprite string) error {
 	if err != nil {
 		return err
 	}
-	b, err := os.ReadFile(p)
+	existing, err := readConfig(p)
 	if err != nil {
+		return err
+	}
+	if existing == "" {
 		return nil
 	}
-	s := strings.TrimRight(removeBlock(string(b), Alias(sprite)), "\n") + "\n"
+	s := strings.TrimRight(removeBlock(existing, Alias(sprite)), "\n") + "\n"
 	if err := os.WriteFile(p, []byte(s), 0o600); err != nil {
 		return err
 	}
 	// Best effort: drop any host key recorded for this alias.
 	_ = exec.Command("ssh-keygen", "-R", Alias(sprite)).Run()
 	return nil
+}
+
+func readConfig(p string) (string, error) {
+	b, err := os.ReadFile(p)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", fmt.Errorf("sshconfig: read %s: %w", p, err)
+	}
+	return string(b), nil
 }
 
 func removeBlock(s, alias string) string {
