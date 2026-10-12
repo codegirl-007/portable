@@ -114,25 +114,26 @@ func runUp(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("workspace SSH did not become ready: %w", err)
 	}
 
-	exists, err := mutagen.Exists(bg(), inst.SyncSession)
-	if err != nil {
+	if err := startSync(inst); err != nil {
 		return err
-	}
-	if exists {
-		upStep("resuming sync")
-		if err := mutagen.Resume(bg(), inst.SyncSession); err != nil {
-			return err
-		}
-	} else {
-		upStep("starting sync %s <-> %s", inst.LocalDir, inst.RemoteDir)
-		if err := mutagen.Create(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, cfg.SyncIgnores); err != nil {
-			return failSetup(inst, err)
-		}
 	}
 
 	upStep("waiting for the initial sync")
 	if err := mutagen.Flush(bg(), inst.SyncSession); err != nil {
-		return err
+		halted, haltErr := syncHalted(inst.SyncSession)
+		if haltErr != nil {
+			return err
+		}
+		if !halted {
+			return err
+		}
+		upStep("sync halted; recreating the session")
+		if recErr := mutagen.Recreate(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, cfg.SyncIgnores); recErr != nil {
+			return failSetup(inst, recErr)
+		}
+		if err := mutagen.Flush(bg(), inst.SyncSession); err != nil {
+			return err
+		}
 	}
 
 	proj, err := project.Load(projectDir)
@@ -201,6 +202,50 @@ func printAgentNextStep() {
 		return
 	}
 	ui.Infof("agent: portable agent")
+}
+
+func startSync(inst *state.Instance) error {
+	sess, err := mutagen.Lookup(bg(), inst.SyncSession)
+	if err != nil {
+		return err
+	}
+	if sess != nil && mutagen.Halted(sess.Status) {
+		upStep("sync was halted; recreating %s <-> %s", inst.LocalDir, inst.RemoteDir)
+		if err := mutagen.Recreate(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, cfg.SyncIgnores); err != nil {
+			return failSetup(inst, err)
+		}
+		return nil
+	}
+	if sess != nil {
+		upStep("resuming sync")
+		if err := mutagen.Resume(bg(), inst.SyncSession); err != nil {
+			return err
+		}
+		halted, err := syncHalted(inst.SyncSession)
+		if err != nil {
+			return err
+		}
+		if halted {
+			upStep("sync halted after resume; recreating the session")
+			if err := mutagen.Recreate(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, cfg.SyncIgnores); err != nil {
+				return failSetup(inst, err)
+			}
+		}
+		return nil
+	}
+	upStep("starting sync %s <-> %s", inst.LocalDir, inst.RemoteDir)
+	if err := mutagen.Create(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, cfg.SyncIgnores); err != nil {
+		return failSetup(inst, err)
+	}
+	return nil
+}
+
+func syncHalted(name string) (bool, error) {
+	sess, err := mutagen.Lookup(bg(), name)
+	if err != nil {
+		return false, err
+	}
+	return sess != nil && mutagen.Halted(sess.Status), nil
 }
 
 // waitForSSH waits for the Sprite's sshd service to be ready before Mutagen

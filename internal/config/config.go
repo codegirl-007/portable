@@ -106,6 +106,19 @@ func (c *Config) DefaultAgentConfig() (*Agent, bool) {
 	return c.AgentByName(c.DefaultAgent)
 }
 
+// RemoteRun is the shell command started by `portable agent`, taken from
+// the loaded config (not from compiled presets).
+func (a *Agent) RemoteRun() (string, error) {
+	if a == nil {
+		return "", fmt.Errorf("no agent configured; run `portable setup`")
+	}
+	run := strings.TrimSpace(a.Run)
+	if run == "" {
+		return "", fmt.Errorf("agent %q has no remote run command; run `portable setup`", a.Name)
+	}
+	return run, nil
+}
+
 // RemotePathPrefixes returns extra PATH segments for remote shells.
 func (c *Config) RemotePathPrefixes() []string {
 	seen := map[string]struct{}{}
