@@ -14,6 +14,23 @@ func TestSetupDone(t *testing.T) {
 	}
 }
 
+func TestRemoteRunUsesConfig(t *testing.T) {
+	a := &Agent{Name: "claude", Run: "exec claude --dangerously-skip-permissions"}
+	got, err := a.RemoteRun()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "exec claude --dangerously-skip-permissions" {
+		t.Fatalf("RemoteRun = %q", got)
+	}
+}
+
+func TestRemoteRunEmpty(t *testing.T) {
+	if _, err := (&Agent{Name: "claude"}).RemoteRun(); err == nil {
+		t.Fatal("expected error for empty run")
+	}
+}
+
 func TestRemoteShellPreambleSourcesEnv(t *testing.T) {
 	c := &Config{
 		EnvFiles: []string{".config/opencode/env"},

@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/codegirl-007/portable/internal/config"
-	"github.com/codegirl-007/portable/internal/setup"
 	"github.com/codegirl-007/portable/internal/sprites"
 	"github.com/codegirl-007/portable/internal/ui"
 )
@@ -38,9 +37,9 @@ func runAgent(_ *cobra.Command, args []string) error {
 			"To run a remote CLI agent instead, run `portable setup` and pick OpenCode or Claude Code",
 			agent.Label)
 	}
-	run, err := setup.RunCommand(cfg.DefaultAgent)
+	run, err := agent.RemoteRun()
 	if err != nil {
-		return fmt.Errorf("agent %q: %w; run `portable setup`", agent.Name, err)
+		return err
 	}
 
 	inst, err := loadInstance()

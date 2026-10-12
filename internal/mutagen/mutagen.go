@@ -81,12 +81,33 @@ func StatusMap(ctx context.Context) (map[string]string, error) {
 	return m, nil
 }
 
+// Halted reports whether a mutagen status is a safety halt (e.g. one-sided
+// root emptying) rather than an active or paused session.
+func Halted(status string) bool {
+	return strings.Contains(status, "Halted")
+}
+
 // SyncRunning reports whether a mutagen status means the workspace is up (sync active).
 func SyncRunning(status string) bool {
-	if status == "" {
+	if status == "" || Halted(status) {
 		return false
 	}
 	return !strings.Contains(status, "Paused")
+}
+
+// Lookup returns the named session, or (nil, nil) if it does not exist.
+func Lookup(ctx context.Context, name string) (*Session, error) {
+	sessions, err := List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range sessions {
+		if sessions[i].Name == name {
+			s := sessions[i]
+			return &s, nil
+		}
+	}
+	return nil, nil
 }
 
 // Exists reports whether a session with the given name exists.
@@ -125,4 +146,12 @@ func Flush(ctx context.Context, name string) error {
 func Terminate(ctx context.Context, name string) error {
 	_, err := run(ctx, "sync", "terminate", name)
 	return err
+}
+
+// Recreate terminates an existing session (if any) and creates a new one.
+// Use this after Mutagen halts because one side looks empty, which happens
+// when a Sprite is new or was recreated and the old session still exists.
+func Recreate(ctx context.Context, name, local, host, remotePath string, ignores []string) error {
+	_ = Terminate(ctx, name)
+	return Create(ctx, name, local, host, remotePath, ignores)
 }
