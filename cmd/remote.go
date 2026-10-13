@@ -9,11 +9,10 @@ import (
 	"github.com/codegirl-007/portable/internal/ui"
 )
 
-// upStep prints a step line only in verbose mode, so `up` stays quiet.
+// upStep prints a progress line for portable up. Remote command output stays
+// quiet unless --verbose is set (see remoteRun).
 func upStep(format string, args ...any) {
-	if flagVerbose {
-		ui.Step(format, args...)
-	}
+	ui.Step(format, args...)
 }
 
 // remoteRun runs a command on the Sprite. Unless --verbose is set, output is
