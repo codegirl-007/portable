@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -17,6 +18,13 @@ var runCmd = &cobra.Command{
 }
 
 func runRun(_ *cobra.Command, args []string) error {
+	b, args := takeBranchFlag(args)
+	if b != "" {
+		flagBranch = b
+	}
+	if len(args) == 0 {
+		return fmt.Errorf("run requires a command")
+	}
 	inst, err := loadInstance()
 	if err != nil {
 		return err

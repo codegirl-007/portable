@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/codegirl-007/portable/internal/config"
+	"github.com/codegirl-007/portable/internal/gitrepo"
 	"github.com/codegirl-007/portable/internal/mutagen"
 	"github.com/codegirl-007/portable/internal/sshconfig"
 	"github.com/codegirl-007/portable/internal/state"
@@ -19,6 +20,7 @@ import (
 var (
 	flagConfig  string
 	flagVerbose bool
+	flagBranch  string
 	cfg         *config.Config
 	projectDir  string
 )
@@ -67,6 +69,57 @@ func init() {
 
 func bg() context.Context { return context.Background() }
 
+func bindBranchFlag(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&flagBranch, "branch", "", "git branch workspace (uses or creates a worktree under .worktrees/)")
+}
+
+// takeBranchFlag pulls --branch from args for commands that disable flag parsing.
+func takeBranchFlag(args []string) (branch string, rest []string) {
+	rest = make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--branch":
+			if i+1 >= len(args) {
+				return "", args
+			}
+			branch = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--branch="):
+			branch = strings.TrimPrefix(a, "--branch=")
+		default:
+			rest = append(rest, a)
+		}
+	}
+	return branch, rest
+}
+
+func canonicalDir() string {
+	repo, err := gitrepo.Discover(projectDir)
+	if err == nil && repo != nil {
+		return repo.Canonical
+	}
+	abs, err := filepath.Abs(projectDir)
+	if err != nil {
+		return projectDir
+	}
+	return abs
+}
+
+func currentBranch() (string, error) {
+	if flagBranch != "" {
+		return strings.TrimSpace(flagBranch), nil
+	}
+	repo, err := gitrepo.Discover(projectDir)
+	if err != nil {
+		return "", err
+	}
+	if repo == nil {
+		return "", nil
+	}
+	return repo.CurrentBranch()
+}
+
 // shellQuote single-quotes a string for a remote shell command.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
@@ -77,28 +130,36 @@ func displayRemote(remoteDir string) string {
 	return strings.Replace(remoteDir, "/home/sprite/", "~/", 1)
 }
 
-// newInstance derives the workspace identity for the current project.
-func newInstance() (*state.Instance, error) {
-	localDir, err := filepath.Abs(projectDir)
+// newInstance derives the workspace identity for a local directory and branch.
+func newInstance(localDir, branch string) (*state.Instance, error) {
+	absLocal, err := filepath.Abs(localDir)
 	if err != nil {
 		return nil, err
 	}
-	slug := state.Slug(projectDir)
-	sprite := cfg.SpritePrefix + "-" + slug
+	canon := canonicalDir()
+	slug := state.Slug(canon)
+	sprite := state.WorkspaceName(cfg.SpritePrefix, slug, branch)
 	return &state.Instance{
-		ProjectPath: projectDir,
+		ProjectPath: canon,
 		ProjectSlug: slug,
+		Branch:      branch,
 		SpriteName:  sprite,
 		SSHHost:     sshconfig.Alias(sprite),
-		LocalDir:    localDir,
-		RemoteDir:   "/home/sprite/" + filepath.Base(localDir),
+		LocalDir:    absLocal,
+		RemoteDir:   "/home/sprite/" + filepath.Base(canon),
 		SyncSession: sprite,
 		CreatedAt:   time.Now(),
 	}, nil
 }
 
-// resolveInstance returns the workspace for an optional CLI name, or the current project.
+// resolveInstance returns the workspace for an optional CLI name, --branch, or cwd.
 func resolveInstance(args []string) (*state.Instance, error) {
+	if flagBranch != "" {
+		if len(args) > 0 {
+			return nil, fmt.Errorf("pass --branch or a workspace name, not both")
+		}
+		return loadInstance()
+	}
 	if len(args) == 0 {
 		return loadInstance()
 	}
@@ -108,14 +169,22 @@ func resolveInstance(args []string) (*state.Instance, error) {
 	return state.FindByWorkspace(args[0])
 }
 
-// loadInstance returns the recorded instance for the current project.
+// loadInstance returns the recorded instance for the current project branch.
 func loadInstance() (*state.Instance, error) {
-	inst, err := state.Load(projectDir)
+	branch, err := currentBranch()
+	if err != nil {
+		return nil, err
+	}
+	canon := canonicalDir()
+	inst, err := state.Load(canon, branch)
 	if err != nil {
 		return nil, err
 	}
 	if inst == nil || inst.SpriteName == "" {
-		return nil, fmt.Errorf("no workspace for %s (run `portable up`)", projectDir)
+		if branch != "" {
+			return nil, fmt.Errorf("no workspace for %s on %s (run `portable up --branch %s`)", canon, branch, branch)
+		}
+		return nil, fmt.Errorf("no workspace for %s (run `portable up`)", canon)
 	}
 	return inst, nil
 }

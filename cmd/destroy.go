@@ -17,6 +17,10 @@ var destroyCmd = &cobra.Command{
 	RunE:  runDestroy,
 }
 
+func init() {
+	bindBranchFlag(destroyCmd)
+}
+
 func runDestroy(_ *cobra.Command, args []string) error {
 	inst, err := resolveInstance(args)
 	if err != nil {
@@ -30,8 +34,8 @@ func runDestroy(_ *cobra.Command, args []string) error {
 		return err
 	}
 	_ = sshconfig.Remove(inst.SpriteName)
-	_ = state.Remove(inst.ProjectPath)
-	_ = state.Unregister(inst.ProjectPath)
+	_ = state.Remove(inst.ProjectPath, inst.Branch)
+	_ = state.Unregister(inst.SpriteName)
 
 	ui.Successf("destroyed the workspace")
 	return nil

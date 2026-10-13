@@ -13,6 +13,7 @@ import (
 
 	"github.com/codegirl-007/portable/internal/config"
 	"github.com/codegirl-007/portable/internal/detect"
+	"github.com/codegirl-007/portable/internal/gitrepo"
 	"github.com/codegirl-007/portable/internal/mutagen"
 	"github.com/codegirl-007/portable/internal/project"
 	"github.com/codegirl-007/portable/internal/provision"
@@ -35,6 +36,7 @@ var upCmd = &cobra.Command{
 
 func init() {
 	upCmd.Flags().BoolVar(&upFlags.reprovision, "reprovision", false, "re-run the one-time setup script (e.g. after adding tools)")
+	bindBranchFlag(upCmd)
 }
 
 func runUp(_ *cobra.Command, _ []string) error {
@@ -48,14 +50,9 @@ func runUp(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	inst, err := newInstance()
+	inst, err := prepareUpInstance()
 	if err != nil {
 		return err
-	}
-	if existing, err := state.Load(projectDir); err != nil {
-		return err
-	} else if existing != nil && existing.SpriteName != "" {
-		inst = existing
 	}
 	if inst.SpriteName == "" {
 		return fmt.Errorf("could not determine a workspace name for %s", projectDir)
@@ -128,7 +125,7 @@ func runUp(_ *cobra.Command, _ []string) error {
 			return err
 		}
 		upStep("sync halted; recreating the session")
-		if recErr := mutagen.Recreate(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, cfg.SyncIgnores); recErr != nil {
+		if recErr := mutagen.Recreate(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, mutagen.EnsureIgnores(cfg.SyncIgnores)); recErr != nil {
 			return recErr
 		}
 		if err := flushSync(inst.SyncSession); err != nil {
@@ -136,7 +133,7 @@ func runUp(_ *cobra.Command, _ []string) error {
 		}
 	}
 
-	proj, err := project.Load(projectDir)
+	proj, err := project.Load(inst.LocalDir)
 	if err != nil {
 		return err
 	}
@@ -177,7 +174,7 @@ func runUp(_ *cobra.Command, _ []string) error {
 		ui.Warnf("dependency install failed (continuing): %v", err)
 	}
 
-	if err := state.Save(projectDir, inst); err != nil {
+	if err := state.Save(inst.ProjectPath, inst); err != nil {
 		return err
 	}
 	if err := state.Register(inst); err != nil {
@@ -185,11 +182,79 @@ func runUp(_ *cobra.Command, _ []string) error {
 	}
 
 	ui.Successf("workspace ready")
+	if inst.Branch != "" {
+		ui.Infof("branch: %s", inst.Branch)
+	}
 	ui.Infof("sync:  %s <-> %s", inst.LocalDir, displayRemote(inst.RemoteDir))
+	if flagBranch != "" && inst.LocalDir != canonicalDir() {
+		ui.Infof("worktree: %s", inst.LocalDir)
+	}
 	printAgentNextStep()
 	ui.Infof("shell: portable ssh   run: portable run <cmd>")
 	ui.Infof("sleep: portable down   delete: portable destroy")
 	return nil
+}
+
+// prepareUpInstance resolves the local directory (creating a worktree when
+// --branch is set) and returns a new or existing instance. It does not talk to Fly.
+func prepareUpInstance() (*state.Instance, error) {
+	localDir, branch, err := resolveUpTarget()
+	if err != nil {
+		return nil, err
+	}
+	inst, err := newInstance(localDir, branch)
+	if err != nil {
+		return nil, err
+	}
+	existing, err := state.Load(inst.ProjectPath, branch)
+	if err != nil {
+		return nil, err
+	}
+	if existing != nil && existing.SpriteName != "" {
+		existing.LocalDir = inst.LocalDir
+		existing.Branch = branch
+		if existing.RemoteDir == "" {
+			existing.RemoteDir = inst.RemoteDir
+		}
+		return existing, nil
+	}
+	return inst, nil
+}
+
+func resolveUpTarget() (localDir, branch string, err error) {
+	if flagBranch != "" {
+		repo, err := gitrepo.Discover(projectDir)
+		if err != nil {
+			return "", "", err
+		}
+		if repo == nil {
+			return "", "", fmt.Errorf("--branch requires a git repository")
+		}
+		path, err := repo.EnsureWorktree(flagBranch)
+		if err != nil {
+			return "", "", err
+		}
+		return path, strings.TrimPrefix(strings.TrimSpace(flagBranch), "refs/heads/"), nil
+	}
+	repo, err := gitrepo.Discover(projectDir)
+	if err != nil {
+		return "", "", err
+	}
+	abs, err := filepath.Abs(projectDir)
+	if err != nil {
+		return "", "", err
+	}
+	if repo == nil {
+		return abs, "", nil
+	}
+	br, err := repo.CurrentBranch()
+	if err != nil {
+		return "", "", err
+	}
+	if br == "HEAD" {
+		br = ""
+	}
+	return abs, br, nil
 }
 
 func printAgentNextStep() {
@@ -211,7 +276,7 @@ func startSync(inst *state.Instance) error {
 	}
 	if sess != nil && mutagen.Halted(sess.Status) {
 		upStep("sync was halted; recreating %s <-> %s", inst.LocalDir, inst.RemoteDir)
-		return mutagen.Recreate(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, cfg.SyncIgnores)
+		return mutagen.Recreate(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, mutagen.EnsureIgnores(cfg.SyncIgnores))
 	}
 	if sess != nil {
 		upStep("resuming sync")
@@ -224,12 +289,12 @@ func startSync(inst *state.Instance) error {
 		}
 		if halted {
 			upStep("sync halted after resume; recreating the session")
-			return mutagen.Recreate(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, cfg.SyncIgnores)
+			return mutagen.Recreate(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, mutagen.EnsureIgnores(cfg.SyncIgnores))
 		}
 		return nil
 	}
 	upStep("starting sync %s <-> %s", inst.LocalDir, inst.RemoteDir)
-	if err := mutagen.Create(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, cfg.SyncIgnores); err != nil {
+	if err := mutagen.Create(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, mutagen.EnsureIgnores(cfg.SyncIgnores)); err != nil {
 		return failSetup(inst, err)
 	}
 	return nil
@@ -346,7 +411,7 @@ func failSetup(inst *state.Instance, cause error) error {
 	_ = mutagen.Terminate(bg(), inst.SyncSession)
 	_ = sprites.New().Destroy(bg(), inst.SpriteName)
 	_ = sshconfig.Remove(inst.SpriteName)
-	_ = state.Remove(projectDir)
-	_ = state.Unregister(projectDir)
+	_ = state.Remove(inst.ProjectPath, inst.Branch)
+	_ = state.Unregister(inst.SpriteName)
 	return cause
 }

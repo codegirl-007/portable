@@ -16,16 +16,28 @@ var statusCmd = &cobra.Command{
 	RunE:  runStatus,
 }
 
+func init() {
+	bindBranchFlag(statusCmd)
+}
+
 func runStatus(_ *cobra.Command, _ []string) error {
-	inst, err := state.Load(projectDir)
+	branch, err := currentBranch()
+	if err != nil {
+		return err
+	}
+	canon := canonicalDir()
+	inst, err := state.Load(canon, branch)
 	if err != nil {
 		return err
 	}
 	if inst == nil || inst.SpriteName == "" {
-		ui.Infof("no workspace for %s", projectDir)
+		ui.Infof("no workspace for %s", canon)
 		return nil
 	}
 	fmt.Printf("project : %s\n", inst.ProjectPath)
+	if inst.Branch != "" {
+		fmt.Printf("branch  : %s\n", inst.Branch)
+	}
 	fmt.Printf("workspace: %s\n", inst.SpriteName)
 	fmt.Printf("local   : %s\n", inst.LocalDir)
 	fmt.Printf("remote  : %s\n", displayRemote(inst.RemoteDir))

@@ -105,7 +105,7 @@ func BuildConfig(agentID string, nvim, gh, ripgrep bool, dotfiles []string, tool
 		Agents:       []config.Agent{agent},
 		SpritePrefix: "portable",
 		SyncIgnores: []string{
-			".git", ".portable", ".stfolder", ".stignore", ".stversions",
+			".git", ".portable", ".worktrees", ".stfolder", ".stignore", ".stversions",
 			"node_modules", "target", "dist", "build",
 			".venv", "venv", "__pycache__", "*.log",
 		},
