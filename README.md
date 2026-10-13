@@ -85,6 +85,26 @@ portable down
 portable destroy
 ```
 
+## Another branch
+
+```sh
+portable up --branch feat/foo
+```
+
+Your current checkout stays on its branch. portable adds a worktree under `.worktrees/` and starts a second remote for `feat/foo`. You get a shell in that worktree, so git is already on `feat/foo`. Checking out a branch does not start anything.
+
+From the worktree directory, you can run any of the portable commands.
+
+Alternatively, from the main repo (or anywhere in it):
+
+```sh
+portable agent --branch feat/foo
+portable down --branch feat/foo
+portable destroy --branch feat/foo
+```
+
+`destroy` kills the remote, not the worktree. Use `--no-enter` if you don't want a shell after `up`.
+
 ## Per-project: tools this repo needs
 
 There is no separate `portable install` command. After sync, **`portable up`**
