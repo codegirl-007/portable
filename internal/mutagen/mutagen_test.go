@@ -24,6 +24,17 @@ func TestHalted(t *testing.T) {
 	}
 }
 
+func TestEnsureIgnores(t *testing.T) {
+	got := EnsureIgnores([]string{".git", ".portable"})
+	if len(got) != 3 || got[2] != ".worktrees" {
+		t.Fatalf("EnsureIgnores = %#v", got)
+	}
+	same := EnsureIgnores([]string{".git", ".worktrees"})
+	if len(same) != 2 {
+		t.Fatalf("already present: %#v", same)
+	}
+}
+
 func TestParseSessionList(t *testing.T) {
 	out := `Name: foo
 Status: Watching for changes

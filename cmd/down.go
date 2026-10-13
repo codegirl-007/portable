@@ -14,6 +14,10 @@ var downCmd = &cobra.Command{
 	RunE:  runDown,
 }
 
+func init() {
+	bindBranchFlag(downCmd)
+}
+
 func runDown(_ *cobra.Command, args []string) error {
 	inst, err := resolveInstance(args)
 	if err != nil {

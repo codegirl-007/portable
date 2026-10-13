@@ -13,6 +13,10 @@ var sshCmd = &cobra.Command{
 	RunE:  runSSH,
 }
 
+func init() {
+	bindBranchFlag(sshCmd)
+}
+
 func runSSH(_ *cobra.Command, _ []string) error {
 	inst, err := loadInstance()
 	if err != nil {

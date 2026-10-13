@@ -16,6 +16,10 @@ var nvimCmd = &cobra.Command{
 }
 
 func runNvim(_ *cobra.Command, args []string) error {
+	b, args := takeBranchFlag(args)
+	if b != "" {
+		flagBranch = b
+	}
 	inst, err := loadInstance()
 	if err != nil {
 		return err

@@ -29,8 +29,22 @@ func run(ctx context.Context, args ...string) (string, error) {
 	return out.String(), nil
 }
 
+// EnsureIgnores adds .worktrees to a Mutagen ignore list if it is missing.
+func EnsureIgnores(ignores []string) []string {
+	for _, ig := range ignores {
+		if ig == ".worktrees" || ig == ".worktrees/" {
+			return ignores
+		}
+	}
+	out := make([]string, len(ignores)+1)
+	copy(out, ignores)
+	out[len(ignores)] = ".worktrees"
+	return out
+}
+
 // Create starts a two-way sync session between local and host:remotePath.
 func Create(ctx context.Context, name, local, host, remotePath string, ignores []string) error {
+	ignores = EnsureIgnores(ignores)
 	args := []string{"sync", "create", "--name", name, "--ignore-vcs"}
 	for _, ig := range ignores {
 		args = append(args, "--ignore", ig)

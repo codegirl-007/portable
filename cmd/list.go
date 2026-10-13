@@ -63,10 +63,18 @@ func printWorkspaces(runningOnly bool) error {
 		if status == "" {
 			status = "(no session)"
 		}
+		branch := in.Branch
+		if branch == "" {
+			branch = "-"
+		}
+		local := in.LocalDir
+		if local == "" {
+			local = in.ProjectPath
+		}
 		if runningOnly {
-			rows = append(rows, row{[]string{in.SpriteName, status, in.ProjectPath}})
+			rows = append(rows, row{[]string{in.SpriteName, branch, status, local}})
 		} else {
-			rows = append(rows, row{[]string{in.SpriteName, status, displayRemote(in.RemoteDir), in.ProjectPath}})
+			rows = append(rows, row{[]string{in.SpriteName, branch, status, displayRemote(in.RemoteDir), local}})
 		}
 	}
 	if runningOnly && len(rows) == 0 {
@@ -76,9 +84,9 @@ func printWorkspaces(runningOnly bool) error {
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 2, 2, ' ', 0)
 	if runningOnly {
-		fmt.Fprintln(w, "WORKSPACE\tSYNC\tPROJECT")
+		fmt.Fprintln(w, "WORKSPACE\tBRANCH\tSYNC\tLOCAL")
 	} else {
-		fmt.Fprintln(w, "WORKSPACE\tSYNC\tREMOTE\tPROJECT")
+		fmt.Fprintln(w, "WORKSPACE\tBRANCH\tSYNC\tREMOTE\tLOCAL")
 	}
 	for _, r := range rows {
 		fmt.Fprintln(w, strings.Join(r.cols, "\t"))

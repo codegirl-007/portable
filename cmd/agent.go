@@ -21,6 +21,10 @@ var agentCmd = &cobra.Command{
 }
 
 func runAgent(_ *cobra.Command, args []string) error {
+	b, args := takeBranchFlag(args)
+	if b != "" {
+		flagBranch = b
+	}
 	if !cfg.SetupDone() {
 		return fmt.Errorf("run `portable setup` first (writes %s)", config.GlobalPath())
 	}

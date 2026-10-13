@@ -35,15 +35,15 @@ type Provision struct {
 
 // Config is the resolved configuration for a run.
 type Config struct {
-	SetupVersion int      `mapstructure:"setup_version" toml:"setup_version"`
-	DefaultAgent string   `mapstructure:"default_agent" toml:"default_agent"`
-	Agents       []Agent  `mapstructure:"agents" toml:"agents"`
-	EnvFiles     []string `mapstructure:"env_files" toml:"env_files"`
+	SetupVersion int       `mapstructure:"setup_version" toml:"setup_version"`
+	DefaultAgent string    `mapstructure:"default_agent" toml:"default_agent"`
+	Agents       []Agent   `mapstructure:"agents" toml:"agents"`
+	EnvFiles     []string  `mapstructure:"env_files" toml:"env_files"`
 	Provision    Provision `mapstructure:"provision" toml:"provision"`
 
-	SpritePrefix   string   `mapstructure:"sprite_prefix" toml:"sprite_prefix"`
-	SyncIgnores    []string `mapstructure:"sync_ignores" toml:"sync_ignores"`
-	Dotfiles       []string `mapstructure:"dotfiles" toml:"dotfiles"`
+	SpritePrefix string   `mapstructure:"sprite_prefix" toml:"sprite_prefix"`
+	SyncIgnores  []string `mapstructure:"sync_ignores" toml:"sync_ignores"`
+	Dotfiles     []string `mapstructure:"dotfiles" toml:"dotfiles"`
 	// Tools are one-time shell commands run at workspace provision (from setup advanced).
 	Tools          []string `mapstructure:"tools" toml:"tools"`
 	PackageManager string   `mapstructure:"package_manager" toml:"package_manager"`
@@ -53,7 +53,7 @@ type Config struct {
 func setDefaults(v *viper.Viper) {
 	v.SetDefault("sprite_prefix", "portable")
 	v.SetDefault("sync_ignores", []string{
-		".git", ".portable", ".stfolder", ".stignore", ".stversions",
+		".git", ".portable", ".worktrees", ".stfolder", ".stignore", ".stversions",
 		"node_modules", "target", "dist", "build",
 		".venv", "venv", "__pycache__", "*.log",
 	})
