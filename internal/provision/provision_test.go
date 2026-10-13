@@ -78,6 +78,7 @@ func TestSetupScriptOpenCode(t *testing.T) {
 	for _, want := range []string{
 		"opencode.ai/install",
 		"nvim-linux-x86_64.tar.gz",
+		"nvim-linux-arm64.tar.gz",
 		"OPENCODE_API_KEY='abc123'",
 		`"model": "opencode-go/deepseek-v4.1-flash"`,
 	} {
@@ -129,10 +130,14 @@ func TestDepsScript(t *testing.T) {
 		"go mod download",
 		"echo ensure-tool",
 		"npm install",
+		"python: requirements.txt",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("deps script missing %q\n--- script ---\n%s", want, s)
 		}
+	}
+	if strings.Contains(s, "pyproject.toml") {
+		t.Fatal("auto python install should not treat pyproject.toml as requirements.txt")
 	}
 }
 
@@ -156,9 +161,11 @@ func TestScriptSyntax(t *testing.T) {
 		CredentialFiles: []CredentialFile{
 			{RelPath: ".config/opencode/env", Content: "export OPENCODE_API_KEY='x'\n"},
 		},
-		Nvim:    true,
-		Ripgrep: true,
-		Tools:   []string{"echo tool"},
+		Nvim:       true,
+		Ripgrep:    true,
+		Gh:         true,
+		TreeSitter: true,
+		Tools:      []string{"echo tool"},
 	})
 	if err != nil {
 		t.Fatal(err)

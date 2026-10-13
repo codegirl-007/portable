@@ -111,12 +111,23 @@ func SetupScript(req SetupRequest) (string, error) {
 		w(`CFG`)
 	}
 
+	if req.Nvim || req.Gh || req.TreeSitter {
+		w(`uname_m=$(uname -m)`)
+		w(`case "$uname_m" in`)
+		w(`  x86_64|amd64) PORTABLE_NVIM_ASSET=nvim-linux-x86_64.tar.gz; PORTABLE_GH_ARCH=amd64; PORTABLE_TS_ARCH=x64 ;;`)
+		w(`  aarch64|arm64) PORTABLE_NVIM_ASSET=nvim-linux-arm64.tar.gz; PORTABLE_GH_ARCH=arm64; PORTABLE_TS_ARCH=arm64 ;;`)
+		w(`  *) echo "unsupported architecture: $uname_m" >&2; exit 1 ;;`)
+		w(`esac`)
+	}
+
 	if req.Nvim {
 		w("")
 		w(`log "nvim"`)
 		w(`if ! command -v nvim >/dev/null 2>&1; then`)
 		w(`  cd /tmp`)
-		w(`  curl -fsSL -o nvim.tar.gz https://github.com/neovim/neovim/releases/latest/download/nvim-linux-x86_64.tar.gz || curl -fsSL -o nvim.tar.gz https://github.com/neovim/neovim/releases/latest/download/nvim-linux64.tar.gz`)
+		w(`  curl -fsSL -o nvim.tar.gz "https://github.com/neovim/neovim/releases/latest/download/$PORTABLE_NVIM_ASSET" || {`)
+		w(`    if [ "$uname_m" = x86_64 ] || [ "$uname_m" = amd64 ]; then curl -fsSL -o nvim.tar.gz https://github.com/neovim/neovim/releases/latest/download/nvim-linux64.tar.gz; else false; fi`)
+		w(`  }`)
 		w(`  rm -rf "$HOME/.local/nvim"; mkdir -p "$HOME/.local/bin"`)
 		w(`  tar xzf nvim.tar.gz && mv nvim-linux-* "$HOME/.local/nvim"`)
 		w(`  ln -sf "$HOME/.local/nvim/bin/nvim" "$HOME/.local/bin/nvim"`)
@@ -135,7 +146,7 @@ func SetupScript(req SetupRequest) (string, error) {
 		w(`  sudo apt-get install -y -qq unzip >/dev/null 2>&1 || true`)
 		w(`  mkdir -p "$HOME/.local/bin"`)
 		w(`  ts_ver=$(curl -s https://api.github.com/repos/tree-sitter/tree-sitter/releases/latest | grep -o '"tag_name": "[^"]*"' | cut -d'"' -f4)`)
-		w(`  curl -fsSL -o /tmp/ts.zip "https://github.com/tree-sitter/tree-sitter/releases/download/$ts_ver/tree-sitter-cli-linux-x64.zip"`)
+		w(`  curl -fsSL -o /tmp/ts.zip "https://github.com/tree-sitter/tree-sitter/releases/download/$ts_ver/tree-sitter-cli-linux-${PORTABLE_TS_ARCH}.zip"`)
 		w(`  ( cd /tmp && unzip -o ts.zip >/dev/null && cp tree-sitter "$HOME/.local/bin/tree-sitter" )`)
 		w(`  chmod +x "$HOME/.local/bin/tree-sitter"`)
 		w(`fi`)
@@ -146,8 +157,8 @@ func SetupScript(req SetupRequest) (string, error) {
 		w(`log "gh"`)
 		w(`if ! command -v gh >/dev/null 2>&1; then`)
 		w(`  v=$(curl -s https://api.github.com/repos/cli/cli/releases/latest | grep -o '"tag_name": "v[^"]*"' | cut -d'"' -f4)`)
-		w(`  if [ -n "$v" ] && curl -fsSL -o /tmp/gh.tgz "https://github.com/cli/cli/releases/download/$v/gh_${v#v}_linux_amd64.tar.gz"; then`)
-		w(`    tar xzf /tmp/gh.tgz -C /tmp && mkdir -p "$HOME/.local/bin" && cp "/tmp/gh_${v#v}_linux_amd64/bin/gh" "$HOME/.local/bin/gh" && chmod +x "$HOME/.local/bin/gh"`)
+		w(`  if [ -n "$v" ] && curl -fsSL -o /tmp/gh.tgz "https://github.com/cli/cli/releases/download/$v/gh_${v#v}_linux_${PORTABLE_GH_ARCH}.tar.gz"; then`)
+		w(`    tar xzf /tmp/gh.tgz -C /tmp && mkdir -p "$HOME/.local/bin" && cp "/tmp/gh_${v#v}_linux_${PORTABLE_GH_ARCH}/bin/gh" "$HOME/.local/bin/gh" && chmod +x "$HOME/.local/bin/gh"`)
 		w(`  else`)
 		w(`    sudo apt-get install -y -qq gh >/dev/null 2>&1 || true`)
 		w(`  fi`)
@@ -200,7 +211,7 @@ func DepsScript(req DepsRequest) (string, error) {
 	if req.AutoLangInstall {
 		w(`if [ -f go.mod ]; then log "go: go.mod"; go mod download; fi`)
 		w(`if [ -f Cargo.toml ]; then log "rust: Cargo.toml"; cargo fetch || true; fi`)
-		w(`if [ -f pyproject.toml ] || [ -f requirements.txt ]; then log "python"; pip install -r requirements.txt 2>/dev/null || true; fi`)
+		w(`if [ -f requirements.txt ]; then log "python: requirements.txt"; pip install -r requirements.txt; fi`)
 	}
 	if len(req.Ensure) > 0 {
 		w("")

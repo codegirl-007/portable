@@ -119,7 +119,7 @@ func runUp(_ *cobra.Command, _ []string) error {
 	}
 
 	upStep("waiting for the initial sync")
-	if err := mutagen.Flush(bg(), inst.SyncSession); err != nil {
+	if err := flushSync(inst.SyncSession); err != nil {
 		halted, haltErr := syncHalted(inst.SyncSession)
 		if haltErr != nil {
 			return err
@@ -129,9 +129,9 @@ func runUp(_ *cobra.Command, _ []string) error {
 		}
 		upStep("sync halted; recreating the session")
 		if recErr := mutagen.Recreate(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, cfg.SyncIgnores); recErr != nil {
-			return failSetup(inst, recErr)
+			return recErr
 		}
-		if err := mutagen.Flush(bg(), inst.SyncSession); err != nil {
+		if err := flushSync(inst.SyncSession); err != nil {
 			return err
 		}
 	}
@@ -211,10 +211,7 @@ func startSync(inst *state.Instance) error {
 	}
 	if sess != nil && mutagen.Halted(sess.Status) {
 		upStep("sync was halted; recreating %s <-> %s", inst.LocalDir, inst.RemoteDir)
-		if err := mutagen.Recreate(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, cfg.SyncIgnores); err != nil {
-			return failSetup(inst, err)
-		}
-		return nil
+		return mutagen.Recreate(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, cfg.SyncIgnores)
 	}
 	if sess != nil {
 		upStep("resuming sync")
@@ -227,9 +224,7 @@ func startSync(inst *state.Instance) error {
 		}
 		if halted {
 			upStep("sync halted after resume; recreating the session")
-			if err := mutagen.Recreate(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, cfg.SyncIgnores); err != nil {
-				return failSetup(inst, err)
-			}
+			return mutagen.Recreate(bg(), inst.SyncSession, inst.LocalDir, inst.SSHHost, inst.RemoteDir, cfg.SyncIgnores)
 		}
 		return nil
 	}
@@ -238,6 +233,18 @@ func startSync(inst *state.Instance) error {
 		return failSetup(inst, err)
 	}
 	return nil
+}
+
+const syncFlushTimeout = 5 * time.Minute
+
+func flushSync(name string) error {
+	ctx, cancel := context.WithTimeout(bg(), syncFlushTimeout)
+	defer cancel()
+	err := mutagen.Flush(ctx, name)
+	if err != nil && ctx.Err() != nil {
+		return fmt.Errorf("initial sync timed out after %s: %w", syncFlushTimeout, err)
+	}
+	return err
 }
 
 func syncHalted(name string) (bool, error) {
