@@ -169,16 +169,89 @@ func BranchSlug(branch string) string {
 	return gitrepo.BranchSlug(branch)
 }
 
+// MaxSpriteName is Fly's limit on sprite create names.
+const MaxSpriteName = 55
+
 // WorkspaceName is the Sprite / Mutagen / SSH identity for a project branch.
+// It is always at most MaxSpriteName characters: readable parts shrink first,
+// 8-character hashes stay so names remain unique.
 func WorkspaceName(prefix, projectSlug, branch string) string {
 	if prefix == "" {
 		prefix = "portable"
 	}
-	name := prefix + "-" + projectSlug
+	parts := []string{prefix, projectSlug}
 	if branch != "" {
-		name += "-" + BranchSlug(branch)
+		parts = append(parts, BranchSlug(branch))
 	}
-	return name
+	name := strings.Join(parts, "-")
+	if len(name) <= MaxSpriteName {
+		return name
+	}
+	return fitSpriteName(prefix, projectSlug, branch)
+}
+
+func splitSlug(slug string) (base, hash string) {
+	i := strings.LastIndex(slug, "-")
+	if i <= 0 || len(slug)-i-1 != 8 {
+		return slug, ""
+	}
+	return slug[:i], slug[i+1:]
+}
+
+func trimOne(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.TrimRight(s[:len(s)-1], "-")
+}
+
+func fitSpriteName(prefix, projectSlug, branch string) string {
+	projBase, projHash := splitSlug(projectSlug)
+	if projHash == "" {
+		projHash = projectSlug
+		projBase = ""
+	}
+	var branchBase, branchHash string
+	if branch != "" {
+		branchBase, branchHash = splitSlug(BranchSlug(branch))
+		if branchHash == "" {
+			branchHash = BranchSlug(branch)
+			branchBase = ""
+		}
+	}
+	join := func() string {
+		p := []string{prefix}
+		if projBase != "" {
+			p = append(p, projBase)
+		}
+		p = append(p, projHash)
+		if branch != "" {
+			if branchBase != "" {
+				p = append(p, branchBase)
+			}
+			p = append(p, branchHash)
+		}
+		return strings.Join(p, "-")
+	}
+	for len(join()) > MaxSpriteName {
+		switch {
+		case len(branchBase) > len(projBase) && branchBase != "":
+			branchBase = trimOne(branchBase)
+		case projBase != "":
+			projBase = trimOne(projBase)
+		case branchBase != "":
+			branchBase = trimOne(branchBase)
+		case len(prefix) > 1:
+			prefix = trimOne(prefix)
+		default:
+			name := join()
+			if len(name) > MaxSpriteName {
+				return name[:MaxSpriteName]
+			}
+			return name
+		}
+	}
+	return join()
 }
 
 // --- global registry -------------------------------------------------------

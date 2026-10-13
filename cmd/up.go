@@ -26,6 +26,7 @@ import (
 
 var upFlags struct {
 	reprovision bool
+	noEnter     bool
 }
 
 var upCmd = &cobra.Command{
@@ -36,6 +37,7 @@ var upCmd = &cobra.Command{
 
 func init() {
 	upCmd.Flags().BoolVar(&upFlags.reprovision, "reprovision", false, "re-run the one-time setup script (e.g. after adding tools)")
+	upCmd.Flags().BoolVar(&upFlags.noEnter, "no-enter", false, "do not start a shell in the worktree after --branch")
 	bindBranchFlag(upCmd)
 }
 
@@ -186,13 +188,50 @@ func runUp(_ *cobra.Command, _ []string) error {
 		ui.Infof("branch: %s", inst.Branch)
 	}
 	ui.Infof("sync:  %s <-> %s", inst.LocalDir, displayRemote(inst.RemoteDir))
-	if flagBranch != "" && inst.LocalDir != canonicalDir() {
-		ui.Infof("worktree: %s", inst.LocalDir)
-	}
 	printAgentNextStep()
 	ui.Infof("shell: portable ssh   run: portable run <cmd>")
 	ui.Infof("sleep: portable down   delete: portable destroy")
+
+	started, err := filepath.Abs(projectDir)
+	if err != nil {
+		started = projectDir
+	}
+	if shouldEnterWorktree(started, inst.LocalDir, isTerminal()) {
+		ui.Infof("entering %s  (exit the shell to return)", inst.LocalDir)
+		return enterWorktreeShell(inst.LocalDir)
+	}
+	if flagBranch != "" && inst.LocalDir != started {
+		ui.Infof("cd %s", inst.LocalDir)
+	}
 	return nil
+}
+
+func shouldEnterWorktree(startedIn, localDir string, tty bool) bool {
+	if upFlags.noEnter || flagBranch == "" || !tty {
+		return false
+	}
+	return filepath.Clean(startedIn) != filepath.Clean(localDir)
+}
+
+func isTerminal() bool {
+	fi, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
+}
+
+func enterWorktreeShell(dir string) error {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+	cmd := exec.Command(shell)
+	cmd.Dir = dir
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
 
 // prepareUpInstance resolves the local directory (creating a worktree when

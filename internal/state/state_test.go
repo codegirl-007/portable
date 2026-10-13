@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -139,6 +140,29 @@ func TestWorkspaceName(t *testing.T) {
 	}
 	if WorkspaceName("portable", "app-deadbeef", "") != "portable-app-deadbeef" {
 		t.Fatalf("empty branch = %q", WorkspaceName("portable", "app-deadbeef", ""))
+	}
+}
+
+func TestWorkspaceNameFitsFlyLimit(t *testing.T) {
+	name := WorkspaceName("portable", "portable-36439653", "feat/branch-workspaces")
+	if len(name) > MaxSpriteName {
+		t.Fatalf("len(%q) = %d, max %d", name, len(name), MaxSpriteName)
+	}
+	if !strings.Contains(name, "36439653") {
+		t.Fatalf("lost project hash: %q", name)
+	}
+	br := BranchSlug("feat/branch-workspaces")
+	hash := br[strings.LastIndex(br, "-")+1:]
+	if !strings.Contains(name, hash) {
+		t.Fatalf("lost branch hash %q in %q", hash, name)
+	}
+	other := WorkspaceName("portable", "portable-36439653", "feat-branch-workspaces")
+	if name == other {
+		t.Fatalf("slash vs hyphen collided: %q", name)
+	}
+	long := WorkspaceName("portable", "a-very-long-project-name-deadbeef", "feat/a-very-long-branch-name-here")
+	if len(long) > MaxSpriteName {
+		t.Fatalf("len(%q) = %d", long, len(long))
 	}
 }
 

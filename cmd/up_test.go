@@ -135,10 +135,32 @@ func TestTwoBranchesGetDifferentSprites(t *testing.T) {
 	}
 }
 
+func TestShouldEnterWorktree(t *testing.T) {
+	defer resetUpTest()
+	flagBranch = "feat/foo"
+	upFlags.noEnter = false
+	if !shouldEnterWorktree("/repo", "/repo/.worktrees/feat-foo", true) {
+		t.Fatal("expected enter when --branch, tty, and different dir")
+	}
+	if shouldEnterWorktree("/repo", "/repo/.worktrees/feat-foo", false) {
+		t.Fatal("do not enter when not a tty")
+	}
+	upFlags.noEnter = true
+	if shouldEnterWorktree("/repo", "/repo/.worktrees/feat-foo", true) {
+		t.Fatal("do not enter with --no-enter")
+	}
+	upFlags.noEnter = false
+	flagBranch = ""
+	if shouldEnterWorktree("/repo", "/repo/.worktrees/feat-foo", true) {
+		t.Fatal("do not enter without --branch")
+	}
+}
+
 func resetUpTest() {
 	flagBranch = ""
 	projectDir = ""
 	cfg = nil
+	upFlags.noEnter = false
 }
 
 func initCmdRepo(t *testing.T) string {
