@@ -85,6 +85,39 @@ portable down
 portable destroy
 ```
 
+## One workspace per git branch
+
+`portable up` in a git checkout uses that checkout's current branch. To work
+on another branch without switching this tree, pass **`--branch`**. The branch
+must already exist.
+
+```sh
+portable up --branch feat/foo
+```
+
+That creates a [git worktree](https://git-scm.com/docs/git-worktree) under
+`.worktrees/` (if you do not already have one for that branch), starts a
+dedicated Sprite and sync session, and opens a shell in the worktree. Exit
+the shell to return. Use `--no-enter` to skip the nested shell:
+
+```sh
+portable up --branch feat/foo --no-enter
+```
+
+The same flag selects that workspace on the other commands:
+
+```sh
+portable agent --branch feat/foo
+portable run --branch feat/foo go test ./...
+portable ssh --branch feat/foo
+portable down --branch feat/foo
+portable destroy --branch feat/foo
+```
+
+`portable ls` and `portable list` show a BRANCH column so you can tell them
+apart. `.worktrees/` is ignored by git and by sync, so the main tree does not
+pull those checkouts onto the remote.
+
 ## Per-project: tools this repo needs
 
 There is no separate `portable install` command. After sync, **`portable up`**
