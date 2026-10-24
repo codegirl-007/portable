@@ -15,7 +15,7 @@ import (
 var agentCmd = &cobra.Command{
 	Use:                "agent [args...]",
 	Short:              "Run your configured coding agent in the workspace",
-	Long:               "Runs the agent chosen in `portable setup` (OpenCode, Claude Code, etc.). Uses a tmux session on the workspace so you can reattach from `portable remote` or after the laptop disconnects.",
+	Long:               "Runs the agent chosen in `portable setup` (OpenCode, Claude Code, etc.). Uses a tmux session on the workspace so you can reattach from `portable remote` or after the laptop disconnects. Detach with Ctrl-b d. Extra args are ignored if a session is already running.",
 	Args:               cobra.ArbitraryArgs,
 	DisableFlagParsing: true,
 	RunE:               runAgent,
@@ -55,7 +55,9 @@ func runAgent(_ *cobra.Command, args []string) error {
 	ui.Step("starting %s in workspace", agent.Label)
 
 	command := cfg.RemoteShellPreamble() + run
-	if len(args) > 0 {
+	if extraAgentArgsIgnored(tmuxSessionExists(inst.SpriteName, remote.SessionName), len(args)) {
+		ui.Warnf("agent session already running; extra arguments ignored (detach with Ctrl-b d)")
+	} else if len(args) > 0 {
 		quoted := make([]string, len(args))
 		for i, a := range args {
 			quoted[i] = shellQuote(a)
@@ -66,4 +68,13 @@ func runAgent(_ *cobra.Command, args []string) error {
 	// keeps running if this laptop disconnects.
 	wrapped := remote.TmuxAttachOrCreate(remote.SessionName, inst.RemoteDir, command)
 	return sprites.New().Exec(bg(), inst.SpriteName, sprites.ExecOptions{TTY: true, Dir: inst.RemoteDir}, "sh", "-c", wrapped)
+}
+
+func extraAgentArgsIgnored(sessionExists bool, nArgs int) bool {
+	return sessionExists && nArgs > 0
+}
+
+func tmuxSessionExists(sprite, session string) bool {
+	_, err := sprites.New().Output(bg(), sprite, "tmux", "has-session", "-t", session)
+	return err == nil
 }

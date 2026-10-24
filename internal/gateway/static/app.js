@@ -19,9 +19,12 @@
   term.loadAddon(fit);
   term.open(termEl);
 
+  const maxFailures = 8;
   let ws;
   let ctrl = false;
   let reconnectTimer;
+  let failures = 0;
+  let stopped = false;
 
   function setStatus(text, kind) {
     statusEl.textContent = text;
@@ -67,13 +70,50 @@
     ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
   }
 
-  function connect() {
+  function backoffMs() {
+    return Math.min(30000, 1000 * Math.pow(2, Math.max(0, failures - 1)));
+  }
+
+  function scheduleReconnect() {
+    if (stopped) return;
+    if (document.hidden) {
+      return;
+    }
+    if (failures >= maxFailures) {
+      setStatus("disconnected", "bad");
+      return;
+    }
+    setStatus("reconnecting", "bad");
+    clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(connect, backoffMs());
+  }
+
+  async function connect() {
+    if (stopped) return;
+    if (document.hidden) {
+      return;
+    }
+    clearTimeout(reconnectTimer);
+    try {
+      const probe = await fetch("/", { credentials: "same-origin", redirect: "manual" });
+      if (probe.status === 401) {
+        stopped = true;
+        location.reload();
+        return;
+      }
+    } catch (_) {
+      failures++;
+      scheduleReconnect();
+      return;
+    }
+
     const proto = location.protocol === "https:" ? "wss" : "ws";
     ws = new WebSocket(proto + "://" + location.host + "/pty");
     ws.binaryType = "arraybuffer";
     setStatus("connecting");
 
     ws.onopen = () => {
+      failures = 0;
       setStatus("live", "ok");
       sendResize();
       term.focus();
@@ -88,11 +128,13 @@
       }
     };
     ws.onclose = () => {
-      setStatus("reconnecting", "bad");
-      clearTimeout(reconnectTimer);
-      reconnectTimer = setTimeout(connect, 1200);
+      ws = null;
+      failures++;
+      scheduleReconnect();
     };
-    ws.onerror = () => ws.close();
+    ws.onerror = () => {
+      if (ws) ws.close();
+    };
   }
 
   term.onData((data) => {
@@ -130,6 +172,11 @@
   if (window.visualViewport) {
     window.visualViewport.addEventListener("resize", sendResize);
   }
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && !stopped && !ws) {
+      connect();
+    }
+  });
   termEl.addEventListener("click", () => {
     term.focus();
     if (/iPhone|iPad|Android/i.test(navigator.userAgent)) {

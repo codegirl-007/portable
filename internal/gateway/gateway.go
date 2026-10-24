@@ -20,7 +20,11 @@ import (
 //go:embed static/*
 var staticFS embed.FS
 
-const cookieName = "portable_remote"
+const (
+	cookieName  = "portable_remote"
+	cspValue    = "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+	wsReadLimit = 1 << 20
+)
 
 // Server is the remote-access HTTP service.
 type Server struct {
@@ -29,6 +33,7 @@ type Server struct {
 	Session      string
 	Dir          string
 	ShellCommand string
+	PublicHost   string   // sprites.app hostname; used for Origin and cookie Secure
 	Exec         []string // if set, run this in a PTY instead of tmux (tests)
 }
 
@@ -39,6 +44,7 @@ func (s *Server) Handler() http.Handler {
 		panic(err)
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("/login.js", s.handleLoginJS)
 	mux.Handle("/static/", s.requireAuth(http.StripPrefix("/static/", http.FileServer(http.FS(static)))))
 	mux.HandleFunc("/login", s.handleLogin)
 	mux.HandleFunc("/pty", s.handlePTY)
@@ -88,9 +94,7 @@ func (s *Server) headers(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Cache-Control", "no-store")
-		if strings.HasPrefix(r.URL.Path, "/static/") || r.URL.Path == "/" {
-			w.Header().Set("Content-Security-Policy", "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
-		}
+		w.Header().Set("Content-Security-Policy", cspValue)
 		next.ServeHTTP(w, r)
 	})
 }
@@ -107,28 +111,39 @@ func (s *Server) validToken(got string) bool {
 }
 
 func (s *Server) authorized(r *http.Request) bool {
-	if s.validToken(r.URL.Query().Get("t")) {
-		return true
-	}
-	if c, err := r.Cookie(cookieName); err == nil && s.validToken(c.Value) {
-		return true
-	}
-	auth := r.Header.Get("Authorization")
-	if strings.HasPrefix(auth, "Bearer ") && s.validToken(strings.TrimPrefix(auth, "Bearer ")) {
-		return true
-	}
-	return false
+	c, err := r.Cookie(cookieName)
+	return err == nil && s.validToken(c.Value)
 }
 
-func cookieSecure(r *http.Request) bool {
-	host, _, err := net.SplitHostPort(r.Host)
-	if err != nil {
-		host = r.Host
+func hostname(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
 	}
-	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+	if strings.Contains(v, "://") {
+		u, err := url.Parse(v)
+		if err != nil {
+			return ""
+		}
+		v = u.Host
+	}
+	if host, _, err := net.SplitHostPort(v); err == nil {
+		return host
+	}
+	return v
+}
+
+func (s *Server) cookieSecure(r *http.Request) bool {
+	host := hostname(s.PublicHost)
+	if host == "" {
+		host = hostname(r.Host)
+	}
+	switch host {
+	case "", "localhost", "127.0.0.1", "::1":
 		return false
+	default:
+		return true
 	}
-	return true
 }
 
 func (s *Server) setAuthCookie(w http.ResponseWriter, r *http.Request) {
@@ -137,7 +152,7 @@ func (s *Server) setAuthCookie(w http.ResponseWriter, r *http.Request) {
 		Value:    s.Token,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   cookieSecure(r),
+		Secure:   s.cookieSecure(r),
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   30 * 24 * 3600,
 	})
@@ -146,11 +161,6 @@ func (s *Server) setAuthCookie(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
-		return
-	}
-	if t := r.URL.Query().Get("t"); s.validToken(t) {
-		s.setAuthCookie(w, r)
-		http.Redirect(w, r, "/", http.StatusFound)
 		return
 	}
 	if !s.authorized(r) {
@@ -163,6 +173,20 @@ func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(b)
+}
+
+func (s *Server) handleLoginJS(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	b, err := staticFS.ReadFile("static/login.js")
+	if err != nil {
+		http.Error(w, "missing login.js", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
 	_, _ = w.Write(b)
 }
 
@@ -185,7 +209,6 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) unauth(w http.ResponseWriter, status int) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("WWW-Authenticate", `Bearer realm="portable"`)
 	w.WriteHeader(status)
 	_, _ = io.WriteString(w, `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -203,6 +226,7 @@ p{color:#8b949e;max-width:36rem}
 <input type="password" name="t" placeholder="token" autocapitalize="off" autocomplete="off" required>
 <button type="submit">Open</button>
 </form>
+<script src="/login.js"></script>
 </body></html>`)
 }
 
@@ -222,24 +246,17 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 	})
 }
 
-func originAllowed(r *http.Request) bool {
+func (s *Server) originAllowed(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return true
 	}
-	u, err := url.Parse(origin)
-	if err != nil {
-		return false
+	ohost := hostname(origin)
+	allowed := hostname(s.PublicHost)
+	if allowed == "" {
+		allowed = hostname(r.Host)
 	}
-	ohost := u.Host
-	if h, _, err := net.SplitHostPort(ohost); err == nil {
-		ohost = h
-	}
-	host := r.Host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		host = h
-	}
-	return strings.EqualFold(ohost, host)
+	return allowed != "" && strings.EqualFold(ohost, allowed)
 }
 
 // LoadSessionFile reads dir and command written by `portable remote`.

@@ -8,20 +8,26 @@ import (
 
 // EnableRequest is the Sprite-side install for remote access.
 type EnableRequest struct {
-	Token   string
-	Dir     string
-	Command string
+	Token      string
+	Dir        string
+	Command    string
+	PublicHost string
 }
 
-// EnableScript installs tmux, writes the token/session files, and creates
-// the HTTP service that runs `portable gateway`.
+// EnableScript writes the token/session files and creates the HTTP service
+// that runs `portable gateway`. tmux is required (same install as attach).
 func EnableScript(req EnableRequest) (string, error) {
 	if strings.TrimSpace(req.Token) == "" {
 		return "", fmt.Errorf("remote: token is required")
 	}
-	sess, err := EncodeSession(req.Dir, req.Command)
+	sess, err := EncodeSession(req.Dir, WithShellFallback(req.Command))
 	if err != nil {
 		return "", err
+	}
+
+	args := "gateway,--listen," + ListenAddr
+	if h := strings.TrimSpace(req.PublicHost); h != "" {
+		args += ",--public-host," + h
 	}
 
 	var b strings.Builder
@@ -33,7 +39,7 @@ func EnableScript(req EnableRequest) (string, error) {
 	w(`log() { printf '\n==> %%s\n' "$*"; }`)
 	w("")
 	w(`log "tmux"`)
-	w(`if ! command -v tmux >/dev/null 2>&1; then sudo apt-get update -qq && sudo apt-get install -y -qq tmux; fi`)
+	w("%s", InstallTmuxShell())
 	w(`command -v tmux >/dev/null 2>&1 || { echo "tmux is not installed" >&2; exit 1; }`)
 	w("")
 	w(`BIN=%s`, shq(BinaryPath))
@@ -54,7 +60,7 @@ func EnableScript(req EnableRequest) (string, error) {
 	w(`log "remote service"`)
 	w(`sprite-env services delete %s >/dev/null 2>&1 || true`, ServiceName)
 	w(`sprite-env services create %s --cmd %s --args %s --http-port %s --no-stream`,
-		ServiceName, shq(BinaryPath), shq("gateway,--listen,"+ListenAddr), strconv.Itoa(HTTPPort))
+		ServiceName, shq(BinaryPath), shq(args), strconv.Itoa(HTTPPort))
 	w(`log "remote ready"`)
 	return b.String(), nil
 }

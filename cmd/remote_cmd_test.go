@@ -31,7 +31,7 @@ func TestParseTokenOutputIgnoresNoise(t *testing.T) {
 
 func TestPrintAccessNoQR(t *testing.T) {
 	var buf bytes.Buffer
-	u := "https://demo.sprites.app/?t=secret"
+	u := "https://demo.sprites.app/#t=secret"
 	if err := printAccess(&buf, u, true); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestRemoteSessionCommandUsesAgent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, "exec opencode") {
+	if !strings.Contains(got, "opencode") || !strings.Contains(got, "exec bash -l") {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -95,8 +95,17 @@ func TestRemoteCommandRegistered(t *testing.T) {
 
 func TestAgentWrapsTmux(t *testing.T) {
 	s := remote.TmuxAttachOrCreate(remote.SessionName, "/home/sprite/app", "exec claude")
-	if !strings.Contains(s, "tmux") || !strings.Contains(s, "exec claude") {
+	if !strings.Contains(s, "tmux -u attach-session") || !strings.Contains(s, "claude; exec bash -l") {
 		t.Fatalf("%s", s)
+	}
+}
+
+func TestExtraAgentArgsIgnored(t *testing.T) {
+	if !extraAgentArgsIgnored(true, 2) {
+		t.Fatal("expected ignored")
+	}
+	if extraAgentArgsIgnored(false, 2) || extraAgentArgsIgnored(true, 0) {
+		t.Fatal("expected not ignored")
 	}
 }
 

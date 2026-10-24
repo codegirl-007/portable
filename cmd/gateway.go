@@ -11,12 +11,12 @@ import (
 )
 
 var gatewayFlags struct {
-	listen    string
-	token     string
-	tokenFile string
-	session   string
-	dir       string
-	command   string
+	listen     string
+	tokenFile  string
+	session    string
+	dir        string
+	command    string
+	publicHost string
 }
 
 var gatewayCmd = &cobra.Command{
@@ -28,11 +28,11 @@ var gatewayCmd = &cobra.Command{
 
 func init() {
 	gatewayCmd.Flags().StringVar(&gatewayFlags.listen, "listen", ":7681", "listen address")
-	gatewayCmd.Flags().StringVar(&gatewayFlags.token, "token", "", "auth token (default: token file or PORTABLE_REMOTE_TOKEN)")
 	gatewayCmd.Flags().StringVar(&gatewayFlags.tokenFile, "token-file", "", "token file (default ~/.config/portable/remote.token)")
 	gatewayCmd.Flags().StringVar(&gatewayFlags.session, "session", "portable", "tmux session name")
 	gatewayCmd.Flags().StringVar(&gatewayFlags.dir, "dir", "", "working directory for a new tmux session")
 	gatewayCmd.Flags().StringVar(&gatewayFlags.command, "command", "", "shell command for a new tmux session")
+	gatewayCmd.Flags().StringVar(&gatewayFlags.publicHost, "public-host", "", "public hostname (sprites.app) for Origin and Secure cookies")
 }
 
 func runGateway(_ *cobra.Command, _ []string) error {
@@ -53,17 +53,12 @@ func runGateway(_ *cobra.Command, _ []string) error {
 		Session:      gatewayFlags.session,
 		Dir:          dir,
 		ShellCommand: command,
+		PublicHost:   gatewayFlags.publicHost,
 	}
 	return srv.Run(bg())
 }
 
 func loadGatewayToken() (string, error) {
-	if t := strings.TrimSpace(gatewayFlags.token); t != "" {
-		return t, nil
-	}
-	if t := strings.TrimSpace(os.Getenv("PORTABLE_REMOTE_TOKEN")); t != "" {
-		return t, nil
-	}
 	path := gatewayFlags.tokenFile
 	if path == "" {
 		path = gateway.DefaultTokenFile()

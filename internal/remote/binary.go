@@ -2,7 +2,10 @@ package remote
 
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +15,11 @@ import (
 	"runtime"
 	"strings"
 	"time"
+)
+
+var (
+	releaseDownloadBase = "https://github.com/codegirl-007/portable/releases/download"
+	httpClient          = &http.Client{Timeout: 60 * time.Second}
 )
 
 // LinuxBinary places a linux portable executable at destPath (basename "portable").
@@ -35,24 +43,22 @@ func LinuxBinary(goarch, version, moduleRoot string) (destPath string, cleanup f
 	dest := filepath.Join(dir, "portable")
 
 	if moduleRoot != "" {
-		if err := crossCompile(moduleRoot, goarch, dest); err == nil {
-			return dest, cleanup, nil
+		if err := crossCompile(moduleRoot, goarch, dest); err != nil {
+			cleanup()
+			return "", nop, err
 		}
+		return dest, cleanup, nil
 	}
-	if version != "" && version != "dev" {
-		if err := downloadRelease(version, goarch, dest); err == nil {
-			return dest, cleanup, nil
+	if version != "" && version != "dev" && version != "(devel)" {
+		if err := downloadRelease(version, goarch, dest); err != nil {
+			cleanup()
+			return "", nop, err
 		}
+		return dest, cleanup, nil
 	}
-	if moduleRoot == "" {
-		cleanup()
-		return "", nop, fmt.Errorf("need Go module source or a GitHub release to install the linux gateway binary")
-	}
-	if err := crossCompile(moduleRoot, goarch, dest); err != nil {
-		cleanup()
-		return "", nop, err
-	}
-	return dest, cleanup, nil
+	cleanup()
+	return "", nop, fmt.Errorf("cannot build a linux/%s gateway from this %s/%s %q binary; run portable from a git checkout of github.com/codegirl-007/portable, or install a GitHub release (go install builds cannot copy a linux binary)",
+		goarch, runtime.GOOS, runtime.GOARCH, version)
 }
 
 func crossCompile(moduleRoot, goarch, dest string) error {
@@ -74,18 +80,56 @@ func downloadRelease(version, goarch, dest string) error {
 	ver := strings.TrimPrefix(version, "v")
 	tag := "v" + ver
 	name := fmt.Sprintf("portable_%s_linux_%s.tar.gz", ver, goarch)
-	url := fmt.Sprintf("https://github.com/codegirl-007/portable/releases/download/%s/%s", tag, name)
+	base := strings.TrimRight(releaseDownloadBase, "/") + "/" + tag + "/"
 
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Get(url)
+	sums, err := httpGet(base + "checksums.txt")
+	if err != nil {
+		return fmt.Errorf("download checksums.txt: %w", err)
+	}
+	want, err := checksumFor(string(sums), name)
 	if err != nil {
 		return err
 	}
+	archive, err := httpGet(base + name)
+	if err != nil {
+		return fmt.Errorf("download %s: %w", name, err)
+	}
+	sum := sha256.Sum256(archive)
+	got := hex.EncodeToString(sum[:])
+	if !strings.EqualFold(got, want) {
+		return fmt.Errorf("checksum mismatch for %s: got %s, want %s", name, got, want)
+	}
+	return extractPortable(bytes.NewReader(archive), dest, name)
+}
+
+func httpGet(rawURL string) ([]byte, error) {
+	resp, err := httpClient.Get(rawURL)
+	if err != nil {
+		return nil, err
+	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download %s: HTTP %d", url, resp.StatusCode)
+		return nil, fmt.Errorf("%s: HTTP %d", rawURL, resp.StatusCode)
 	}
-	gr, err := gzip.NewReader(resp.Body)
+	return io.ReadAll(resp.Body)
+}
+
+func checksumFor(sums, filename string) (string, error) {
+	for _, line := range strings.Split(sums, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		file := strings.TrimPrefix(fields[len(fields)-1], "*")
+		if filepath.Base(file) == filename {
+			return fields[0], nil
+		}
+	}
+	return "", fmt.Errorf("checksums.txt has no entry for %s", filename)
+}
+
+func extractPortable(r io.Reader, dest, name string) error {
+	gr, err := gzip.NewReader(r)
 	if err != nil {
 		return err
 	}

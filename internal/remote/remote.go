@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"path"
 	"regexp"
 	"strings"
 )
@@ -26,8 +25,8 @@ const (
 	// TokenRel is the home-relative token path (Sprite home, not the synced project).
 	TokenRel = ".config/portable/remote.token"
 	// SessionRel is the home-relative session JSON path.
-	SessionRel = ".config/portable/remote-session.json"
-	QueryToken = "t"
+	SessionRel    = ".config/portable/remote-session.json"
+	FragmentToken = "t"
 )
 
 // NewToken returns a 256-bit hex token for remote HTTP auth.
@@ -42,10 +41,8 @@ func NewToken() (string, error) {
 // TokenFile is the Sprite path of the remote auth token.
 func TokenFile() string { return "/home/sprite/" + TokenRel }
 
-// SessionFile is the Sprite path of the tmux session command JSON.
-func SessionFile() string { return "/home/sprite/" + SessionRel }
-
-// AccessURL appends the auth token to the Sprite HTTPS URL.
+// AccessURL puts the auth token in the URL fragment so it is not sent as a
+// query parameter (referrers, logs). The page POSTs it to /login.
 func AccessURL(base, token string) (string, error) {
 	base = strings.TrimSpace(base)
 	if base == "" {
@@ -61,14 +58,15 @@ func AccessURL(base, token string) (string, error) {
 	if u.Scheme == "" {
 		u.Scheme = "https"
 	}
-	q := u.Query()
-	q.Set(QueryToken, token)
-	u.RawQuery = q.Encode()
-	u.Fragment = ""
+	u.RawQuery = ""
+	u.Fragment = FragmentToken + "=" + token
 	return u.String(), nil
 }
 
-var spritesURL = regexp.MustCompile(`https://[a-zA-Z0-9._-]+\.sprites\.app`)
+var (
+	spritesURL = regexp.MustCompile(`https://[a-zA-Z0-9._-]+\.sprites\.app`)
+	authLine   = regexp.MustCompile(`(?i)(?:url[- ]?auth|auth(?:entication)?)\s*[:=]\s*(public|sprite)\b`)
+)
 
 // SpriteHTTP is the Sprite's public HTTPS URL and URL-auth mode.
 type SpriteHTTP struct {
@@ -93,13 +91,9 @@ func ParseSpriteHTTP(out string) SpriteHTTP {
 	if info.URL == "" {
 		info.URL = strings.TrimRight(spritesURL.FindString(out), "/")
 	}
-	low := strings.ToLower(out)
 	if info.Auth == "" {
-		switch {
-		case strings.Contains(low, "public"):
-			info.Auth = "public"
-		case strings.Contains(low, "sprite"):
-			info.Auth = "sprite"
+		if m := authLine.FindStringSubmatch(out); len(m) == 2 {
+			info.Auth = strings.ToLower(m[1])
 		}
 	}
 	return info
@@ -128,8 +122,18 @@ func EncodeSession(dir, command string) ([]byte, error) {
 	return json.Marshal(SessionJSON{Dir: dir, Command: command})
 }
 
-// BinaryDest is the remote path of the portable binary.
-func BinaryDest() string { return BinaryPath }
-
-// RelSlash joins home-relative path segments with slashes.
-func RelSlash(parts ...string) string { return path.Join(parts...) }
+// WithShellFallback runs command, then a login shell, so an exiting agent
+// does not tear down the tmux session (which would restart the agent on the
+// next attach).
+func WithShellFallback(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" || command == "exec bash -l" || command == "bash -l" {
+		return "exec bash -l"
+	}
+	if strings.HasSuffix(command, "; exec bash -l") {
+		return command
+	}
+	command = strings.ReplaceAll(command, "; exec ", "; ")
+	command = strings.TrimPrefix(command, "exec ")
+	return command + "; exec bash -l"
+}

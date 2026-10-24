@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -60,7 +61,7 @@ func disableRemote(client *sprites.Client, spriteName string) error {
 		return err
 	}
 	if err := client.SetURLAuth(bg(), spriteName, "sprite"); err != nil {
-		ui.Warnf("could not set Sprite URL auth back to private: %v", err)
+		return fmt.Errorf("web terminal stopped, but the Sprite URL is still public: %w", err)
 	}
 	ui.Successf("remote access off; Sprite URL is private again")
 	ui.Infof("the agent tmux session is unchanged; `portable agent` still attaches")
@@ -91,10 +92,19 @@ func enableRemote(client *sprites.Client, spriteName, remoteDir, branch string) 
 	if err != nil {
 		return err
 	}
+	httpInfo, err := client.HTTPURL(bg(), spriteName)
+	if err != nil {
+		return err
+	}
+	publicHost := ""
+	if u, err := parseHostname(httpInfo.URL); err == nil {
+		publicHost = u
+	}
 	script, err := remote.EnableScript(remote.EnableRequest{
-		Token:   token,
-		Dir:     remoteDir,
-		Command: sessionCmd,
+		Token:      token,
+		Dir:        remoteDir,
+		Command:    sessionCmd,
+		PublicHost: publicHost,
 	})
 	if err != nil {
 		return err
@@ -106,10 +116,6 @@ func enableRemote(client *sprites.Client, spriteName, remoteDir, branch string) 
 	ui.Step("publishing the workspace URL")
 	if err := client.SetURLAuth(bg(), spriteName, "public"); err != nil {
 		return fmt.Errorf("make Sprite URL public: %w", err)
-	}
-	httpInfo, err := client.HTTPURL(bg(), spriteName)
-	if err != nil {
-		return err
 	}
 	access, err := remote.AccessURL(httpInfo.URL, token)
 	if err != nil {
@@ -125,14 +131,22 @@ func enableRemote(client *sprites.Client, spriteName, remoteDir, branch string) 
 		return err
 	}
 	fmt.Println()
-	ui.Infof("same session as `portable agent` (close the tab to leave it running)")
+	ui.Infof("same session as `portable agent` (close the tab, or Ctrl-b d from the laptop TTY)")
 	ui.Infof("laptop asleep: edits stay on the workspace until Mutagen resumes")
 	ui.Infof("idle Sprite sleeps; opening the URL wakes it (cold wake starts a new tmux session)")
 	ui.Infof("stop: portable remote --off")
 	return nil
 }
 
-// printAccess writes the browser URL. The ?t= value is the access token;
+func parseHostname(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	return u.Hostname(), nil
+}
+
+// printAccess writes the browser URL. The #t= fragment is the access token;
 // showing it here is the point of `portable remote`.
 func printAccess(w io.Writer, access string, noQR bool) error {
 	fmt.Fprintln(w, access)
@@ -155,7 +169,7 @@ func remoteSessionCommand() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return cfg.RemoteShellPreamble() + run, nil
+	return remote.WithShellFallback(cfg.RemoteShellPreamble() + run), nil
 }
 
 func loadOrMakeRemoteToken(client *sprites.Client, spriteName string) (string, error) {

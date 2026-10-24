@@ -27,8 +27,11 @@ func TestAccessURL(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "https://demo-abc.sprites.app/?t=deadbeef" {
+	if got != "https://demo-abc.sprites.app/#t=deadbeef" {
 		t.Fatalf("got %q", got)
+	}
+	if strings.Contains(got, "?t=") {
+		t.Fatal("token must not be a query parameter")
 	}
 	if _, err := AccessURL("", "x"); err == nil {
 		t.Fatal("expected empty URL error")
@@ -46,6 +49,26 @@ func TestParseSpriteHTTPText(t *testing.T) {
 	info := ParseSpriteHTTP("URL: https://my-sprite-ab12.sprites.app\nAuth: public\n")
 	if info.URL != "https://my-sprite-ab12.sprites.app" || info.Auth != "public" {
 		t.Fatalf("%+v", info)
+	}
+	info = ParseSpriteHTTP("URL: https://my-sprite-ab12.sprites.app\n")
+	if info.URL != "https://my-sprite-ab12.sprites.app" {
+		t.Fatalf("%+v", info)
+	}
+	if info.Auth != "" {
+		t.Fatalf("substring sprite in the hostname must not set auth: %+v", info)
+	}
+}
+
+func TestWithShellFallback(t *testing.T) {
+	got := WithShellFallback("export PATH=x; exec opencode")
+	if got != "export PATH=x; opencode; exec bash -l" {
+		t.Fatalf("got %q", got)
+	}
+	if again := WithShellFallback(got); again != got {
+		t.Fatalf("not idempotent: %q", again)
+	}
+	if got := WithShellFallback("exec bash -l"); got != "exec bash -l" {
+		t.Fatalf("bash = %q", got)
 	}
 }
 
@@ -67,9 +90,10 @@ func TestTmuxAttachOrCreateQuotes(t *testing.T) {
 	s := TmuxAttachOrCreate("portable", "/home/sprite/app", "export PATH='$HOME/bin'; exec opencode")
 	for _, want := range []string{
 		"command -v tmux",
-		"tmux attach-session -t 'portable'",
+		InstallTmuxShell(),
+		"tmux -u attach-session -t 'portable'",
 		"tmux -u new-session -s 'portable' -c '/home/sprite/app'",
-		"exec opencode",
+		"opencode; exec bash -l",
 		`'\''`,
 	} {
 		if !strings.Contains(s, want) {
@@ -80,7 +104,7 @@ func TestTmuxAttachOrCreateQuotes(t *testing.T) {
 
 func TestTmuxFallsBackWithoutTmux(t *testing.T) {
 	s := TmuxAttachOrCreate("portable", "/tmp", "exec claude")
-	if !strings.Contains(s, "exec sh -c 'exec claude'") {
+	if !strings.Contains(s, "exec sh -c 'claude; exec bash -l'") {
 		t.Fatalf("fallback missing: %s", s)
 	}
 }
@@ -112,6 +136,21 @@ func TestEnableScript(t *testing.T) {
 	}
 	if strings.Contains(s, "/home/sprite/app/.config") {
 		t.Fatal("token must not live in the synced project directory")
+	}
+}
+
+func TestEnableScriptPublicHost(t *testing.T) {
+	s, err := EnableScript(EnableRequest{
+		Token:      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Dir:        "/home/sprite/app",
+		Command:    "exec opencode",
+		PublicHost: "demo-abc.sprites.app",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(s, "gateway,--listen,:7681,--public-host,demo-abc.sprites.app") {
+		t.Fatalf("missing public-host in %s", s)
 	}
 }
 
@@ -182,7 +221,7 @@ func TestLinuxBinarySelfOnLinux(t *testing.T) {
 
 func TestWriteQR(t *testing.T) {
 	var b strings.Builder
-	if err := WriteQR(&b, "https://example.sprites.app/?t=abc"); err != nil {
+	if err := WriteQR(&b, "https://example.sprites.app/#t=abc"); err != nil {
 		t.Fatal(err)
 	}
 	if b.Len() < 50 {

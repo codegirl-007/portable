@@ -114,13 +114,17 @@ portable remote
 portable remote --branch feat/foo
 ```
 
-That prints a URL and a QR code. Open it on your phone or another computer. You get a live terminal with extra keys for Esc, Tab, Ctrl-C, and arrows. Typing there is the same session as `portable agent` on the laptop: attach, detach, come back.
+That prints a URL and a QR code. Open it on your phone or another computer. You get a live terminal with extra keys for Esc, Tab, Ctrl-C, and arrows. Typing there is the same session as `portable agent` on the laptop.
 
-**Auth.** The Sprite URL is publicly reachable once remote is on, so the page is not an open shell. `portable remote` creates a random token, stores it only on the Sprite at `~/.config/portable/remote.token` (mode 600, not in your synced project), and puts it in the URL/QR. The first load sets an HttpOnly cookie and drops the token from the address bar. Wrong or missing tokens get a 401. Agent API keys stay in the Sprite home env files; they are not served over HTTP. Treat the URL like a password (browser history, screenshots). Rotate with `portable remote --reset-token`. Turn it off with `portable remote --off` (Sprite URL goes back to private / org-only).
+From a laptop TTY, detach with **Ctrl-b d** (tmux prefix then `d`); closing the browser tab also leaves the session running. If `portable agent` is already attached to a live session, extra arguments are ignored.
+
+When the agent process exits, the tmux session drops to a login shell instead of restarting the agent on the next connect.
+
+**Auth.** The Sprite URL is publicly reachable once remote is on, so the page is not an open shell. `portable remote` creates a random token, stores it only on the Sprite at `~/.config/portable/remote.token` (mode 600, not in your synced project), and puts it in the URL fragment (`#t=…`, not a query string). The page POSTs that token to `/login`, sets an HttpOnly cookie, and strips the fragment from the address bar. Wrong or missing tokens get a 401. Agent API keys stay in the Sprite home env files; they are not served over HTTP. Treat the URL like a password (screenshots). Rotate with `portable remote --reset-token`. Turn it off with `portable remote --off` (Sprite URL goes back to private / org-only). If making the URL private fails, that command errors instead of printing success.
 
 **Sleep and sync.** A request to the URL wakes the Sprite and starts the web terminal service. An open tab keeps it awake. When you close the tab, the Sprite can sleep again (no extra paid service). Warm sleep keeps the tmux session; a **cold** wake starts a fresh one. Mutagen still runs on the laptop. If the laptop is asleep or you ran `portable down`, edits on the Sprite stay there until the laptop is back and sync resumes (`portable up` if you had paused it). Don't edit the same files on the laptop while it's disconnected if you want to avoid conflicts.
 
-**Not verified here:** this repo's tests cover the web terminal, token checks, and install scripts. They do not talk to a live Fly Sprite.
+**Tests vs a real Sprite.** `go test` covers the web terminal (auth, CSP, PTY echo, disconnect killing the attach process), token/URL parsing, tmux wrap, install-script syntax, and release checksum verification. It does **not** call a live Fly Sprite, so `sprite url`, `sprite-env services create`, public URL, and wake-on-request are untested here.
 
 ## Per-project: tools this repo needs
 

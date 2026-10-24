@@ -8,17 +8,21 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/coder/websocket"
 	"github.com/creack/pty"
 )
+
+const wsPingInterval = 20 * time.Second
 
 func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	if !s.authorized(r) {
 		s.unauth(w, http.StatusUnauthorized)
 		return
 	}
-	if !originAllowed(r) {
+	if !s.originAllowed(r) {
 		http.Error(w, "origin not allowed", http.StatusForbidden)
 		return
 	}
@@ -29,6 +33,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
+	conn.SetReadLimit(wsReadLimit)
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
 	cmd, err := s.ptyCommand()
@@ -36,20 +41,34 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusInternalError, "pty")
 		return
 	}
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor")
+	cmd.Env = append(filterEnv(os.Environ()), "TERM=xterm-256color", "COLORTERM=truecolor")
 	ptmx, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80})
 	if err != nil {
 		_ = conn.Close(websocket.StatusInternalError, "pty start")
 		return
 	}
+
+	ctx, cancel := context.WithCancel(r.Context())
+	var once sync.Once
+	cleanup := func() {
+		once.Do(func() {
+			cancel()
+			_ = ptmx.Close()
+			if cmd.Process != nil {
+				_ = cmd.Process.Kill()
+			}
+		})
+	}
 	defer func() {
-		_ = ptmx.Close()
-		_ = cmd.Process.Kill()
+		cleanup()
 		_ = cmd.Wait()
 	}()
 
-	ctx := r.Context()
-	go s.wsToPTY(ctx, conn, ptmx)
+	go func() {
+		s.wsToPTY(ctx, conn, ptmx)
+		cleanup()
+	}()
+	go s.keepAlive(ctx, conn, cleanup)
 	s.ptyToWS(ctx, conn, ptmx)
 }
 
@@ -65,10 +84,30 @@ func (s *Server) ptyCommand() (*exec.Cmd, error) {
 	if s.Dir != "" {
 		args = append(args, "-c", s.Dir)
 	}
-	if strings.TrimSpace(s.ShellCommand) != "" {
-		args = append(args, "--", "sh", "-lc", s.ShellCommand)
+	cmd := strings.TrimSpace(s.ShellCommand)
+	if cmd != "" {
+		args = append(args, "--", "sh", "-lc", cmd)
 	}
 	return exec.Command("tmux", args...), nil
+}
+
+func (s *Server) keepAlive(ctx context.Context, conn *websocket.Conn, onFail func()) {
+	ticker := time.NewTicker(wsPingInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			pctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			err := conn.Ping(pctx)
+			cancel()
+			if err != nil {
+				onFail()
+				return
+			}
+		}
+	}
 }
 
 func (s *Server) wsToPTY(ctx context.Context, conn *websocket.Conn, ptmx *os.File) {
@@ -100,10 +139,21 @@ func (s *Server) ptyToWS(ctx context.Context, conn *websocket.Conn, ptmx *os.Fil
 			}
 		}
 		if err != nil {
-			if err != io.EOF {
+			if err != io.EOF && ctx.Err() == nil {
 				_ = conn.Close(websocket.StatusNormalClosure, "")
 			}
 			return
 		}
 	}
+}
+
+func filterEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, e := range env {
+		if strings.HasPrefix(e, "PORTABLE_REMOTE_TOKEN=") {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
 }
