@@ -306,6 +306,7 @@ func printAgentNextStep() {
 		return
 	}
 	ui.Infof("agent: portable agent")
+	ui.Infof("phone: portable remote")
 }
 
 func startSync(inst *state.Instance) error {

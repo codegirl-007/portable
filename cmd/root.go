@@ -64,7 +64,8 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().StringVar(&flagConfig, "config", "", "config file (default ~/.config/portable/config.toml)")
 	rootCmd.PersistentFlags().BoolVar(&flagVerbose, "verbose", false, "stream remote setup and dependency output")
-	rootCmd.AddCommand(setupCmd, upCmd, downCmd, destroyCmd, agentCmd, sshCmd, nvimCmd, runCmd, statusCmd, lsCmd, listCmd)
+	rootCmd.AddCommand(setupCmd, upCmd, downCmd, destroyCmd, agentCmd, remoteAccessCmd, sshCmd, nvimCmd, runCmd, statusCmd, lsCmd, listCmd)
+	rootCmd.AddCommand(gatewayCmd)
 }
 
 func bg() context.Context { return context.Background() }

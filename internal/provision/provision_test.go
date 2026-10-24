@@ -23,6 +23,7 @@ func TestSetupScriptMinimal(t *testing.T) {
 		"set -euo pipefail",
 		"openssh-server",
 		"sprite-env services create sshd",
+		"tmux",
 		"ssh-ed25519 AAAA test@host",
 		"/home/sprite/app",
 		`touch "$HOME/.portable-provisioned"`,

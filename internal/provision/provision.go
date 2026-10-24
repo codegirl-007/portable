@@ -5,6 +5,8 @@ package provision
 import (
 	"fmt"
 	"strings"
+
+	"github.com/codegirl-007/portable/internal/remote"
 )
 
 // CredentialFile is written on the workspace during one-time setup.
@@ -61,6 +63,8 @@ func SetupScript(req SetupRequest) (string, error) {
 	w(`log "sshd"`)
 	w(`if [ ! -x /usr/sbin/sshd ]; then sudo apt-get update -qq && sudo apt-get install -y -qq openssh-server; fi`)
 	w(`sprite-env services create sshd --cmd /usr/sbin/sshd >/dev/null 2>&1 || true`)
+	w(`log "tmux"`)
+	w("%s", remote.InstallTmuxShell())
 	w(`mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"`)
 	w(`touch "$HOME/.ssh/authorized_keys" && chmod 600 "$HOME/.ssh/authorized_keys"`)
 	if req.PublicKey != "" {
