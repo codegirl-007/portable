@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/codegirl-007/portable/internal/config"
+	"github.com/codegirl-007/portable/internal/remote"
 	"github.com/codegirl-007/portable/internal/sprites"
 	"github.com/codegirl-007/portable/internal/ui"
 )
@@ -14,7 +15,7 @@ import (
 var agentCmd = &cobra.Command{
 	Use:                "agent [args...]",
 	Short:              "Run your configured coding agent in the workspace",
-	Long:               "Runs the agent chosen in `portable setup` (OpenCode, Claude Code, etc.).",
+	Long:               "Runs the agent chosen in `portable setup` (OpenCode, Claude Code, etc.). Uses a tmux session on the workspace so you can reattach from `portable remote` or after the laptop disconnects.",
 	Args:               cobra.ArbitraryArgs,
 	DisableFlagParsing: true,
 	RunE:               runAgent,
@@ -61,5 +62,8 @@ func runAgent(_ *cobra.Command, args []string) error {
 		}
 		command += " " + strings.Join(quoted, " ")
 	}
-	return sprites.New().Exec(bg(), inst.SpriteName, sprites.ExecOptions{TTY: true, Dir: inst.RemoteDir}, "sh", "-c", command)
+	// Attach to the same tmux session the phone/browser uses, so the agent
+	// keeps running if this laptop disconnects.
+	wrapped := remote.TmuxAttachOrCreate(remote.SessionName, inst.RemoteDir, command)
+	return sprites.New().Exec(bg(), inst.SpriteName, sprites.ExecOptions{TTY: true, Dir: inst.RemoteDir}, "sh", "-c", wrapped)
 }
